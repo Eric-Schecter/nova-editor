@@ -1,0 +1,290 @@
+--- a/render/include/render/Model.hpp
++++ b/render/include/render/Model.hpp
+@@ -17,6 +17,7 @@
+         float                intensity = 3.5f;
+     };
+     // Rotation in degrees [-180,180], linear intensity multipliers [0,16].
++    struct SceneShadowSettings { bool enabled = true; float softness = 1.f; }; // PCF radius multiplier [0,4]; 0 is hard shadow.
+     struct EnvironmentSettings
+     {
+         float rotation            = 0.0f;
+--- a/render/include/render/Renderer.hpp
++++ b/render/include/render/Renderer.hpp
+@@ -86,6 +86,8 @@
+         EnvironmentSettings        GetEnvironment() const;
+         void                       SetDirectionalLight(const DirectionalLight& light);
+         DirectionalLight           GetDirectionalLight() const;
++        void                       SetShadows(const SceneShadowSettings& settings);
++        SceneShadowSettings             GetShadows() const;
+         void                       SetLighting(LightingMode mode);
+         // Returns false if UI was disabled at build time. Disabled by default.
+         bool                 EnableParameterPanel(bool enabled = true);
+--- a/render/include/render/ShadowMap.hpp
++++ b/render/include/render/ShadowMap.hpp
+@@ -10,7 +10,7 @@
+ using ShadowTriangle=std::array<ShadowPoint,3>;
+ struct ShadowMap {
+  static constexpr unsigned Resolution=1024;
+- std::array<float,20> uniforms{}; // column-major world -> UV/depth, resolution/enabled/bias/strength
++ std::array<float,24> uniforms{}; // column-major world -> UV/depth, resolution/enabled/bias/strength
+  std::vector<float> depth=std::vector<float>(Resolution*Resolution,1.f);
+ };
+ inline ShadowMap BuildShadowMap(const std::vector<ShadowTriangle>& triangles,ShadowPoint light) {
+@@ -29,7 +29,7 @@
+  auto& u=map.uniforms;
+  for(int k=0;k<3;k++){u[k*4]=right[k]/span[0];u[k*4+1]=up[k]/span[1];u[k*4+2]=forward[k]/span[2];}
+  u[12]=-low[0]/span[0];u[13]=-low[1]/span[1];u[14]=-low[2]/span[2];u[15]=1;
+- u[16]=ShadowMap::Resolution;u[17]=1;u[18]=std::max(span[0],span[1])/ShadowMap::Resolution/span[2]*.65f;u[19]=.85f;
++ u[16]=ShadowMap::Resolution;u[17]=1;u[18]=std::max(span[0],span[1])/ShadowMap::Resolution/span[2]*.65f;u[19]=.85f;u[20]=1;
+  auto screen=[&](ShadowPoint p){p=project(p);for(int k=0;k<3;k++)p[k]=(p[k]-low[k])/span[k];p[0]*=ShadowMap::Resolution;p[1]*=ShadowMap::Resolution;return p;};
+  auto edge=[](ShadowPoint a,ShadowPoint b,float x,float y){return (b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0]);};
+  for(const auto& tri:triangles){auto a=screen(tri[0]),b=screen(tri[1]),c=screen(tri[2]);float area=edge(a,b,c[0],c[1]);if(std::abs(area)<1e-7f)continue;
+--- a/render/include/render/Window.hpp
++++ b/render/include/render/Window.hpp
+@@ -58,6 +58,8 @@
+         EnvironmentSettings        GetEnvironment() const;
+         void                       SetDirectionalLight(const DirectionalLight& light);
+         DirectionalLight           GetDirectionalLight() const;
++        void                       SetShadows(const SceneShadowSettings& settings);
++        SceneShadowSettings             GetShadows() const;
+         void                       SetLighting(LightingMode mode);
+         // Returns false if UI was disabled at build time. Disabled by default.
+         bool                 EnableParameterPanel(bool enabled = true);
+--- a/render/shaders/model.hlsl
++++ b/render/shaders/model.hlsl
+@@ -80,22 +80,23 @@
+ [[vk::binding(14, 0)]] StructuredBuffer<InstanceData> instances : register(t11);
+ #if defined(NOVA_WEB_OUTPUT) || defined(NOVA_METAL_SHADOWS)
+ [[vk::binding(17, 0)]] StructuredBuffer<float> shadowDepth : register(t17);
+-[[vk::binding(18, 0)]] cbuffer ShadowScene : register(b18) { float4x4 shadowMatrix; float4 shadowParams; };
++[[vk::binding(18, 0)]] cbuffer ShadowScene : register(b18) { float4x4 shadowMatrix; float4 shadowParams; float4 shadowFilter; };
+ float shadowVisibility(float3 position,float3 normal) {
+     if(shadowParams.y<.5 || lightDirection.w<.5)return 1;
+     float3 p=mul(shadowMatrix,float4(position,1)).xyz;
+     float3 dx=ddx(p),dy=ddy(p);
+     float determinant=dx.x*dy.y-dx.y*dy.x;
+-    float slope=abs(determinant)>1e-12 ? (abs((dx.z*dy.y-dy.z*dx.y)/determinant)+abs((dy.z*dx.x-dx.z*dy.x)/determinant))/shadowParams.x : 0;
++    float2 gradient=abs(determinant)>1e-12 ? float2((dx.z*dy.y-dy.z*dx.y)/determinant,(dy.z*dx.x-dx.z*dy.x)/determinant) : float2(0,0);
+     if(any(p<0)||any(p>1)||dot(normal,lightDirection.xyz)<=0)return 1;
+-    int size=int(shadowParams.x);int2 center=int2(p.xy*size);
+-    float bias=max(shadowParams.z*(1+2*(1-saturate(dot(normal,lightDirection.xyz)))),shadowParams.z+1.5*slope);
++    int size=int(shadowParams.x);
++    float bias=shadowParams.z*(1+2*(1-saturate(dot(normal,lightDirection.xyz))));
+     float blocked=0;
+-    for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+-        int2 q=center+int2(x,y);
+-        if(all(q>=0)&&all(q<size)) blocked+=p.z-bias>shadowDepth[q.y*size+q.x]?1:0;
+-    }
+-    return 1-shadowParams.w*blocked/9;
++    for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){
++        int2 q=int2(floor(p.xy*size+float2(x,y)*shadowFilter.x*.5));
++        float receiver=p.z+dot(gradient,(float2(q)+.5)/size-p.xy);
++        if(all(q>=0)&&all(q<size)) blocked+=receiver-bias>shadowDepth[q.y*size+q.x]?1:0;
++    }
++    return 1-shadowParams.w*blocked/25;
+ }
+ #else
+ float shadowVisibility(float3 position,float3 normal) { return 1; }
+--- a/render/src/Backend.hpp
++++ b/render/src/Backend.hpp
+@@ -210,6 +210,14 @@
+             directionalLight = value;
+         }
+         DirectionalLight GetDirectionalLight() const { return directionalLight; }
++        void SetShadows(const SceneShadowSettings& value) {
++            if(!std::isfinite(value.softness)||value.softness<0||value.softness>4)throw std::invalid_argument("Shadow softness must be in [0,4]");
++            shadowSettings=value;rasterAA.Reset();
++        }
++        SceneShadowSettings GetShadows() const { return shadowSettings; }
++        std::array<float,24> MakeShadowUniforms() const {
++            auto u=scene.shadow.uniforms;u[17]*=shadowSettings.enabled?1.f:0.f;u[20]=shadowSettings.softness;return u;
++        }
+         void             SetLighting(LightingMode value)
+         {
+             if (lighting != value)
+@@ -359,6 +367,7 @@
+         std::shared_ptr<const ModelData>       model;
+         OrbitCamera                            camera;
+         DirectionalLight                       directionalLight;
++        SceneShadowSettings                         shadowSettings;
+         LightingMode                           lighting = LightingMode::Unlit;
+ 
+       public:
+--- a/render/src/Renderer.cpp
++++ b/render/src/Renderer.cpp
+@@ -243,6 +243,8 @@
+     {
+         return impl_->backend->GetClearColor();
+     }
++    void Renderer::SetShadows(const SceneShadowSettings& settings) { impl_->backend->SetShadows(settings); }
++    SceneShadowSettings Renderer::GetShadows() const { return impl_->backend->GetShadows(); }
+     void Renderer::SetLighting(LightingMode mode)
+     {
+         if (mode != LightingMode::Unlit && mode != LightingMode::PBR)
+--- a/render/src/Window.cpp
++++ b/render/src/Window.cpp
+@@ -192,6 +192,8 @@
+     {
+         return impl_->renderer->GetClearColor();
+     }
++    void Window::SetShadows(const SceneShadowSettings& settings) { impl_->renderer->SetShadows(settings); }
++    SceneShadowSettings Window::GetShadows() const { return impl_->renderer->GetShadows(); }
+     void Window::SetLighting(LightingMode mode)
+     {
+         impl_->renderer->SetLighting(mode);
+--- a/render/src/backends/MetalBackend.mm
++++ b/render/src/backends/MetalBackend.mm
+@@ -201,7 +201,8 @@
+                     [encoder setVertexBuffer:sceneInstanceBuffer offset:0 atIndex:14];
+                     [encoder setFragmentBuffer:sceneInstanceBuffer offset:0 atIndex:14];
+                     [encoder setFragmentBuffer:shadowBuffer offset:0 atIndex:17];
+-                    [encoder setFragmentBytes:scene.shadow.uniforms.data() length:80 atIndex:18];
++                    auto shadowUniforms=MakeShadowUniforms();
++                    [encoder setFragmentBytes:shadowUniforms.data() length:96 atIndex:18];
+                     [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+                     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+                     [encoder setVertexBuffer:vertices offset:0 atIndex:1];
+@@ -324,7 +325,8 @@
+                 UploadShadows();
+                 [e setFragmentBuffer:sceneInstanceBuffer offset:0 atIndex:14];
+                 [e setFragmentBuffer:shadowBuffer offset:0 atIndex:17];
+-                [e setFragmentBytes:scene.shadow.uniforms.data() length:80 atIndex:18];
++                auto shadowUniforms=MakeShadowUniforms();
++                [e setFragmentBytes:shadowUniforms.data() length:96 atIndex:18];
+                 for (NSUInteger i = 0; i < 5; i++)
+                     [e setFragmentTexture:modelTextures[i] atIndex:2 + i];
+                 [e setFragmentTexture:environmentTexture atIndex:8];
+@@ -376,7 +378,7 @@
+         uint64_t shadowUploaded=~uint64_t(0);
+         void UploadShadows(){
+             if(!shadowBuffer)shadowBuffer=[device newBufferWithLength:render::ShadowMap::Resolution*render::ShadowMap::Resolution*4 options:MTLResourceStorageModeShared];
+-            if(scene.active)scene.PrepareShadows(directionalLight.direction);
++            if(scene.active && shadowSettings.enabled)scene.PrepareShadows(directionalLight.direction);
+             if(shadowUploaded!=scene.shadowVersion){std::memcpy(shadowBuffer.contents,scene.shadow.depth.data(),scene.shadow.depth.size()*4);shadowUploaded=scene.shadowVersion;}
+         }
+         id<MTLRenderPipelineState>    modelPipeline;
+--- a/web/src/Lighting.js
++++ b/web/src/Lighting.js
+@@ -1,4 +1,8 @@
+ // Matches render::DirectionalLight. Color is linear RGB, direction points toward the light.
++export function copyShadowSettings(value) {
++ if(!value || typeof value.enabled!=='boolean' || !Number.isFinite(value.softness) || value.softness<0 || value.softness>4)throw Error('Shadow softness must be in [0,4]');
++ return {enabled:value.enabled,softness:value.softness};
++}
+ export function defaultDirectionalLight() {
+   return { direction: [-1, 1.6, 2], color: [1, 3.2 / 3.5, 0.8], intensity: 3.5 }
+ }
+--- a/web/src/ModelView.js
++++ b/web/src/ModelView.js
+@@ -89,7 +89,7 @@
+         )
+     }
+     const shadowBuffer=makeBuffer(new Float32Array(1024*1024).fill(1),GPUBufferUsage.STORAGE,'Nova shadow depth'),
+-      shadowUniform=makeBuffer(new Float32Array(20),GPUBufferUsage.UNIFORM,'Nova shadow uniforms')
++      shadowUniform=makeBuffer(new Float32Array(24),GPUBufferUsage.UNIFORM,'Nova shadow uniforms')
+     instanceBuffer = makeBuffer(new Float32Array(48), GPUBufferUsage.STORAGE, 'Nova instances')
+     cube = cubeTexture(device, fallbackEnvironment)
+     backgroundCube = cubeTexture(device, fallbackEnvironment)
+@@ -107,7 +107,7 @@
+     const layout = device.createBindGroupLayout({
+       entries: [
+         {binding:17,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'read-only-storage'}},
+-        {binding:18,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform',minBindingSize:80}},
++        {binding:18,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform',minBindingSize:96}},
+         {
+           binding: 15,
+           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+@@ -350,9 +350,7 @@
+         if (disposed) throw Error('Model has been disposed')
+         if (instanceBuffer.size < Math.max(192, bytes.byteLength)) {
+           instanceBuffer.destroy()
+-          const shadowBuffer=makeBuffer(new Float32Array(1024*1024).fill(1),GPUBufferUsage.STORAGE,'Nova shadow depth'),
+-      shadowUniform=makeBuffer(new Float32Array(20),GPUBufferUsage.UNIFORM,'Nova shadow uniforms')
+-    instanceBuffer = makeBuffer(
++          instanceBuffer = makeBuffer(
+             new Uint8Array(Math.max(192, bytes.byteLength)),
+             GPUBufferUsage.STORAGE,
+             'Nova instances',
+@@ -362,7 +360,7 @@
+         if (bytes.byteLength) device.queue.writeBuffer(instanceBuffer, 0, bytes)
+         sceneDraws = draws
+       },
+-      draw(camera, clear, width, height, lighting, light, settings) {
++      draw(camera, clear, width, height, lighting, light, settings, shadows={enabled:true,softness:1}) {
+         if (disposed) throw Error('Model has been disposed')
+         if (data.animation) device.queue.writeBuffer(joints, 0, data.jointMatrices)
+         if (!depth || depth.width !== width || depth.height !== height) {
+@@ -373,10 +371,14 @@
+             usage: GPUTextureUsage.RENDER_ATTACHMENT,
+           })
+         }
+-        if(shadowProvider && lighting==='pbr'){
++        const shadowValues=new Float32Array(24)
++        if(shadowProvider && lighting==='pbr' && shadows.enabled){
+           const shadow=shadowProvider(light.direction)
+-          if(shadow!==lastShadow){device.queue.writeBuffer(shadowBuffer,0,shadow.depth);device.queue.writeBuffer(shadowUniform,0,shadow.uniforms);lastShadow=shadow}
+-        }
++          if(shadow!==lastShadow){device.queue.writeBuffer(shadowBuffer,0,shadow.depth);lastShadow=shadow}
++          shadowValues.set(shadow.uniforms)
++        }
++        shadowValues[20]=shadows.softness
++        device.queue.writeBuffer(shadowUniform,0,shadowValues)
+         const values = sceneUniforms(
+           data,
+           camera,
+--- a/web/src/Nova.js
++++ b/web/src/Nova.js
+@@ -3,7 +3,7 @@
+ import { defaultPathTracing, validatePathTracing } from './PathView.js'
+ import { defaultEnvironment, copyEnvironment, loadEnvironmentFile } from './EnvironmentData.js'
+ import { attachParameterPanel } from './ParameterPanel.js'
+-import { defaultDirectionalLight, copyDirectionalLight } from './Lighting.js'
++import { defaultDirectionalLight, copyDirectionalLight, copyShadowSettings } from './Lighting.js'
+ import { attachOrbitControls } from './OrbitControls.js'
+ import { createModelView } from './ModelView.js'
+ import { SceneData } from './SceneData.js'
+@@ -153,6 +153,7 @@
+   #parameterPanel
+   #orbitControls
+   #renderTail = Promise.resolve()
++  #shadowSettings = { enabled:true, softness:1 }
+   #lighting = 'unlit'
+   #directionalLight = defaultDirectionalLight()
+   #environment
+@@ -495,6 +496,8 @@
+     this.#check()
+     return copyDirectionalLight(this.#directionalLight)
+   }
++  setShadows(settings) {this.#check();const value=copyShadowSettings(settings);this.#shadowSettings=value;this.#resetAA()}
++  getShadows() {this.#check();return {...this.#shadowSettings}}
+   setLighting(mode) {
+     this.#check()
+     if (mode !== 'unlit' && mode !== 'pbr')
+@@ -731,6 +734,7 @@
+             this.#lighting,
+             this.#directionalLight,
+             this.#environmentSettings,
++            this.#shadowSettings,
+           )
+       } else {
+         const encoder = this.#device.createCommandEncoder()
+--- a/web/src/ShadowMap.js
++++ b/web/src/ShadowMap.js
+@@ -3,7 +3,7 @@
+ const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]
+ const unit=a=>{const n=Math.hypot(...a);if(!Number.isFinite(n)||n<1e-6)throw Error('Invalid shadow light');return a.map(v=>v/n)}
+ export function buildShadowMap(triangles,light){
+- const size=shadowResolution,uniforms=new Float32Array(20),depth=new Float32Array(size*size).fill(1)
++ const size=shadowResolution,uniforms=new Float32Array(24),depth=new Float32Array(size*size).fill(1)
+  light=unit(light);const forward=light.map(v=>-v),right=unit(cross(Math.abs(forward[1])>.98?[0,0,1]:[0,1,0],forward)),up=cross(forward,right)
+  const project=p=>[dot(right,p),dot(up,p),dot(forward,p)],low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity]
+  function include(p){p=project(p);for(let k=0;k<3;k++){if(!Number.isFinite(p[k]))throw Error('Non-finite shadow geometry');low[k]=Math.min(low[k],p[k]);high[k]=Math.max(high[k],p[k])}}
+@@ -11,7 +11,7 @@
+  for(const tri of triangles)for(const p of tri){include(p);if(light[1]>.05)include(p.map((v,k)=>v-light[k]*p[1]/light[1]))}
+  for(let k=0;k<3;k++){const padding=Math.max(.1,(high[k]-low[k])*.03);low[k]-=padding;high[k]+=padding}
+  const span=high.map((v,k)=>v-low[k]);for(let k=0;k<3;k++){uniforms[k*4]=right[k]/span[0];uniforms[k*4+1]=up[k]/span[1];uniforms[k*4+2]=forward[k]/span[2]}
+- uniforms.set([-low[0]/span[0],-low[1]/span[1],-low[2]/span[2],1,size,1,Math.max(span[0],span[1])/size/span[2]*.65,.85],12)
++ uniforms.set([-low[0]/span[0],-low[1]/span[1],-low[2]/span[2],1,size,1,Math.max(span[0],span[1])/size/span[2]*.65,.85,1],12)
+  const screen=p=>project(p).map((v,k)=>(v-low[k])/span[k]*(k<2?size:1))
+  const edge=(a,b,x,y)=>(b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0])
+  for(const tri of triangles){const [a,b,c]=tri.map(screen),area=edge(a,b,c[0],c[1]);if(Math.abs(area)<1e-7)continue

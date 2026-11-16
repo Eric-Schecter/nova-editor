@@ -1,0 +1,29 @@
+{
+  "name": "nova-editor",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.5.1",
+  "scripts": {
+    "dev:web": "node tools/fixtures/environments.mjs && node --import tsx tools/fixtures/primitives.ts && node --import tsx tools/fixtures/model.ts && node --import tsx tools/fixtures/scene-objects.ts && vite apps/web --host 127.0.0.1",
+    "build:web": "node tools/fixtures/environments.mjs && node --import tsx tools/fixtures/primitives.ts && node --import tsx tools/fixtures/model.ts && node --import tsx tools/fixtures/scene-objects.ts && tsc --noEmit && vite build apps/web",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "sdk:stage": "node tools/sdk/stage.mjs",
+    "sdk:verify": "node tools/sdk/verify.mjs",
+    "fixtures:primitives": "node --import tsx tools/fixtures/primitives.ts",
+    "fixtures:model": "node --import tsx tools/fixtures/model.ts",
+    "fixtures:scene-objects": "node --import tsx tools/fixtures/primitives.ts && node --import tsx tools/fixtures/scene-objects.ts"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "fflate": "0.8.2"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3",
+    "vite": "7.2.2",
+    "tsx": "4.20.6"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@nova-editor/editor-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module"
+}

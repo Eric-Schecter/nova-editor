@@ -1,0 +1,86 @@
+[
+  {
+    "type": "box",
+    "triangles": 12,
+    "minimum": [
+      -0.5,
+      -0.5,
+      -0.5
+    ],
+    "maximum": [
+      0.5,
+      0.5,
+      0.5
+    ]
+  },
+  {
+    "type": "plane",
+    "triangles": 2,
+    "minimum": [
+      -1,
+      0,
+      -1
+    ],
+    "maximum": [
+      1,
+      0,
+      1
+    ]
+  },
+  {
+    "type": "sphere",
+    "triangles": 960,
+    "minimum": [
+      -1,
+      -1,
+      -1
+    ],
+    "maximum": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "type": "cylinder",
+    "triangles": 128,
+    "minimum": [
+      -1,
+      -1,
+      -1
+    ],
+    "maximum": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "type": "cone",
+    "triangles": 64,
+    "minimum": [
+      -1,
+      -1,
+      -1
+    ],
+    "maximum": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "type": "torus",
+    "triangles": 768,
+    "minimum": [
+      -1.25,
+      -0.25,
+      -1.25
+    ],
+    "maximum": [
+      1.25,
+      0.25,
+      1.25
+    ]
+  }
+]

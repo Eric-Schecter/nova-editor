@@ -1,0 +1,7 @@
+{
+  "sourceCommit": "f016292068826553fca948c08b3de5fbb9f1eb75",
+  "sourceDirty": true,
+  "capturedAt": "2026-11-16T09:30:00+08:00",
+  "webBaseCommit": "6888d8a72eeb645985490e2b911ed0cc00b3bbca",
+  "note": "Native local dirty source audited by base manifest; Web editor API baseline preserved. Not a clean upstream release."
+}

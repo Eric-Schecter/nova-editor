@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 2,
+  "name": "Placement transform fixture",
+  "assets": {
+    "asset": {
+      "path": "assets/test.glb",
+      "sourceSpace": true
+    }
+  },
+  "nodes": [
+    {
+      "id": "parent",
+      "name": "Parent",
+      "parentId": null,
+      "transform": {
+        "position": [
+          4,
+          5,
+          -2
+        ],
+        "rotation": [
+          0.14487812541736916,
+          0.2685358227515692,
+          -0.03813457647485015,
+          0.9515485246437885
+        ],
+        "scale": [
+          2,
+          0.7,
+          -1.3
+        ]
+      }
+    },
+    {
+      "id": "group",
+      "name": "Group",
+      "parentId": "parent",
+      "transform": {
+        "position": [
+          0,
+          -4,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": "mesh",
+      "name": "Mesh",
+      "assetId": "asset",
+      "parentId": "group",
+      "transform": {
+        "position": [
+          -1,
+          6,
+          0
+        ],
+        "rotation": [
+          0.39458575602810014,
+          0.1098661410326007,
+          0.18464220931146905,
+          0.8933861241002776
+        ],
+        "scale": [
+          -0.5,
+          2,
+          1.2
+        ]
+      }
+    }
+  ]
+}

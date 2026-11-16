@@ -1,0 +1,1 @@
+{"schemaVersion":1,"name":"Cycle","assets":{},"nodes":[{"id":"a","parentId":"b","name":"A","transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]}},{"id":"b","parentId":"a","name":"B","transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]}}]}

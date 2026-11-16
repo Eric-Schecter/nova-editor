@@ -1,0 +1,1 @@
+{"schemaVersion":1,"name":"Transform contract","assets":{},"nodes":[{"id":"parent","parentId":null,"name":"Parent","transform":{"position":[2,0,0],"rotation":[0,0,0.7071067811865475,0.7071067811865476],"scale":[2,3,1]}},{"id":"child","parentId":"parent","name":"Child","transform":{"position":[1,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]}}]}

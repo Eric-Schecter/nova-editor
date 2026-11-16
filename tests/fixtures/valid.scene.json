@@ -1,0 +1,1 @@
+{"schemaVersion":1,"name":"Contract fixture","assets":{"mesh":{"path":"assets/model.glb"}},"nodes":[{"id":"root","parentId":null,"name":"Root","transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]}},{"id":"child","parentId":"root","name":"Model","assetId":"mesh","transform":{"position":[1,2,3],"rotation":[0,0,0,1],"scale":[1,1,1]}}]}

@@ -1,0 +1,414 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nova-editor:scene:4",
+  "title": "Nova Editor scene v4 (legacy v1-v3 accepted)",
+  "description": "Tree cycles, asset references, finite numbers, unit quaternions and unique primary camera / active directional light are checked by both semantic validators.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "name",
+    "nodes",
+    "assets"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "enum": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "assets": {
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "sourceSpace": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^assets/"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "world": {
+      "type": "object",
+      "required": [
+        "environment",
+        "background",
+        "fog"
+      ],
+      "properties": {
+        "environment": {
+          "type": "object",
+          "required": [
+            "map",
+            "name",
+            "rotation",
+            "intensity",
+            "backgroundIntensity"
+          ],
+          "properties": {
+            "map": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^assets/.+\\.nenv$"
+            },
+            "name": {
+              "type": "string"
+            },
+            "rotation": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "intensity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 16
+            },
+            "backgroundIntensity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 16
+            }
+          }
+        },
+        "background": {
+          "type": "object",
+          "required": [
+            "mode",
+            "color"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "color",
+                "environment"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          }
+        },
+        "fog": {
+          "type": "object",
+          "required": [
+            "mode",
+            "color",
+            "near",
+            "far",
+            "density"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "none",
+                "linear",
+                "exp2"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "near": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "far": {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 2000
+            },
+            "density": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "quaternion": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "parentId",
+        "name",
+        "transform"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "assetId": {
+          "type": "string"
+        },
+        "transform": {
+          "type": "object",
+          "required": [
+            "position",
+            "rotation",
+            "scale"
+          ],
+          "properties": {
+            "position": {
+              "$ref": "#/$defs/vector3"
+            },
+            "rotation": {
+              "$ref": "#/$defs/quaternion"
+            },
+            "scale": {
+              "$ref": "#/$defs/vector3"
+            }
+          }
+        },
+        "hidden": {
+          "type": "boolean",
+          "default": false
+        },
+        "locked": {
+          "type": "boolean",
+          "default": false
+        },
+        "camera": {
+          "type": "object",
+          "required": [
+            "projection",
+            "focusDistance",
+            "orthographicSize",
+            "exposure",
+            "primary"
+          ],
+          "properties": {
+            "projection": {
+              "enum": [
+                "perspective",
+                "orthographic"
+              ]
+            },
+            "focusDistance": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 100
+            },
+            "orthographicSize": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 80
+            },
+            "exposure": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 16
+            },
+            "primary": {
+              "type": "boolean"
+            }
+          }
+        },
+        "light": {
+          "type": "object",
+          "required": [
+            "type",
+            "color",
+            "intensity",
+            "shadows",
+            "softness",
+            "active"
+          ],
+          "properties": {
+            "type": {
+              "const": "directional"
+            },
+            "color": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "intensity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "shadows": {
+              "type": "boolean"
+            },
+            "softness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 4
+            },
+            "active": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "assetId",
+              "camera"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "assetId",
+              "light"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "camera",
+              "light"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "assets": {
+            "additionalProperties": {
+              "properties": {
+                "sourceSpace": {
+                  "const": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "enum": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "camera"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "light"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "enum": [
+              1,
+              2,
+              3
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "world"
+          ]
+        }
+      }
+    }
+  ]
+}

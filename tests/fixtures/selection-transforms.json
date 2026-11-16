@@ -1,0 +1,12 @@
+{
+ "scene":{"schemaVersion":2,"name":"Selection contract","assets":{"mesh":{"path":"assets/box.glb","sourceSpace":true}},"nodes":[{"id":"left","name":"Left","parentId":null,"assetId":"mesh","transform":{"position":[-2,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]}},{"id":"right","name":"Right","parentId":null,"assetId":"mesh","transform":{"position":[2,1,0],"rotation":[0,0,0.7071067811865475,0.7071067811865476],"scale":[1,1,1]}}]},
+ "ids":["left","right"],"active":"right","bounds":{"mesh":{"minimum":[-0.5,-0.5,-0.5],"maximum":[0.5,0.5,0.5]}},"pivot":[0,1,0],
+ "cases":[
+ {"name":"world translation","space":"world","position":[1,2,-0.5],"euler":[0,0,0],"scale":[1,1,1],"operation":[1,0,0,0,0,1,0,0,0,0,1,0,1,2,-0.5,1]},
+ {"name":"active local translation","space":"local","position":[1,0,0],"euler":[0,0,0],"scale":[1,1,1],"operation":[1,0,0,0,0,1,0,0,0,0,1,0,0,1,0,1]},
+ {"name":"world rotation about selection center","space":"world","position":[0,0,0],"euler":[0,0,90],"scale":[1,1,1],"operation":[0,1,0,0,-1,0,0,0,0,0,1,0,1,1,0,1]},
+ {"name":"world X scale","space":"world","position":[0,0,0],"euler":[0,0,0],"scale":[2,1,1],"operation":[2,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]},
+ {"name":"local X scale along active world Y","space":"local","position":[0,0,0],"euler":[0,0,0],"scale":[2,1,1],"operation":[1,0,0,0,0,2,0,0,0,0,1,0,0,-1,0,1]},
+ {"name":"uniform scale doubles separation","space":"world","position":[0,0,0],"euler":[0,0,0],"scale":[2,2,2],"operation":[2,0,0,0,0,2,0,0,0,0,2,0,0,-1,0,1]}
+ ]
+}

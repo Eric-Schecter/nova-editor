@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 2,
+  "name": "Source units study",
+  "assets": {
+    "small": {
+      "path": "assets/units-small.glb",
+      "sourceSpace": true
+    },
+    "tall": {
+      "path": "assets/units-tall.glb",
+      "sourceSpace": true
+    }
+  },
+  "nodes": [
+    {
+      "id": "small",
+      "name": "1 m cube",
+      "parentId": null,
+      "assetId": "small",
+      "transform": {
+        "position": [
+          -2,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": "tall",
+      "name": "3 m column",
+      "parentId": null,
+      "assetId": "tall",
+      "transform": {
+        "position": [
+          1.5,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ]
+}

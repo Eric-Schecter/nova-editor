@@ -1,0 +1,794 @@
+/* D: neutral monochrome chrome; the scene canvas uses neutral gray. */
+:root {
+  color: var(--text);
+  background: var(--panel);
+}
+:root .app,
+:root header,
+:root .hierarchy,
+:root .inspector,
+:root .assets,
+:root footer,
+:root .viewport-bar,
+:root .viewport-footer {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--line);
+}
+:root button,
+:root input {
+  background: var(--field);
+  border-color: var(--line);
+  color: var(--text);
+}
+:root button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+:root .asset-card,
+:root .vector-field {
+  background: var(--field);
+  border-color: var(--line);
+  color: var(--text);
+}
+:root .tree button.selected {
+  background: color-mix(in srgb, var(--accent) 18%, var(--field));
+  color: var(--accent);
+}
+:root .inspector h3,
+:root .viewport-bar > span:first-child,
+:root .object-identity strong,
+:root .asset-card strong {
+  color: var(--text);
+}
+:root .brand-mark,
+:root .brand-icon {
+  background: var(--accent);
+}
+:root .node.selected,
+:root .asset.selected {
+  background: color-mix(in srgb, var(--accent) 14%, var(--field));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  color: var(--accent);
+}
+:root .asset {
+  background: var(--field);
+  border-color: var(--line);
+}
+:root .asset-icon,
+:root .object-identity > .icon {
+  background: color-mix(in srgb, var(--accent) 12%, var(--field));
+  color: var(--accent);
+}
+:root .panel-title,
+:root h3 {
+  border-color: var(--line);
+  color: var(--text);
+}
+:root .asset strong {
+  color: var(--text);
+}
+:root .node:not(.selected),
+:root .scene-toolbar button {
+  background: transparent;
+  border-color: transparent;
+}
+:root .asset-location,
+:root .scene-name,
+:root .field {
+  color: var(--muted);
+}
+:root {
+  --accent: #b4bcc7;
+  --line: #34373c;
+  --muted: #8d949e;
+  --text: #e1e4e9;
+  --panel: #202226;
+  --field: #2a2d32;
+  color-scheme: dark;
+}
+:root .brand strong {
+  color: var(--text);
+}
+:root .vector label {
+  background: var(--field);
+  border-color: var(--line);
+}
+:root .node {
+  color: var(--text);
+}
+:root .node.selected {
+  color: var(--accent);
+}
+
+.viewport-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inspector-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.inspector-tabs button {
+  flex: 1;
+  padding: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+.inspector-tabs button[aria-selected="true"] {
+  background: #3c3d40;
+  color: #eee;
+}
+.lighting-properties {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lighting-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lighting-heading small,
+.light-note,
+.light-range-caption {
+  color: #93959b;
+  font-size: 11px;
+}
+.lighting-properties fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lighting-properties legend {
+  padding: 0;
+  margin-bottom: 10px;
+  color: #c4c5c9;
+  font-size: 12px;
+}
+.lighting-properties fieldset:disabled {
+  opacity: 0.45;
+}
+.light-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.light-slider > span {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.light-slider output {
+  color: #d9dadd;
+  font-variant-numeric: tabular-nums;
+}
+.lighting-properties input[type="range"] {
+  width: 100%;
+  height: 14px;
+  padding: 0;
+  accent-color: #bec1c7;
+  cursor: pointer;
+}
+.light-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.lighting-properties input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  padding: 0;
+  accent-color: #c5c7cb;
+}
+.light-color {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.light-color > div {
+  display: flex;
+  gap: 8px;
+}
+.light-color input[type="color"] {
+  width: 42px;
+  height: 30px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.light-color input[type="text"] {
+  min-width: 0;
+  font-family: monospace;
+}
+.light-range-caption {
+  display: flex;
+  justify-content: space-between;
+}
+.light-reset {
+  width: 100%;
+  font-size: 12px;
+}
+.light-note {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.scene-tree {
+  padding: 8px;
+}
+.scene-tree > input {
+  margin-bottom: 8px;
+}
+.tree-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.tree-actions button {
+  padding: 4px 7px;
+}
+.tree-help {
+  display: block;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 8px 2px;
+}
+.tree-root {
+  padding: 8px;
+  margin: 8px 0;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  text-align: center;
+}
+.tree-row {
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 4px;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  cursor: default;
+}
+.tree-row:hover {
+  background: var(--panel);
+}
+.tree-row.selected {
+  background: #dedede;
+  color: #171717;
+}
+.tree-row.tree-hidden .tree-label {
+  opacity: 0.45;
+}
+.tree-row.drop-before {
+  border-top-color: var(--text);
+}
+.tree-row.drop-after {
+  border-bottom-color: var(--text);
+}
+.tree-row.drop-inside {
+  outline: 1px solid var(--text);
+}
+.tree-fold,
+.tree-flag {
+  background: transparent;
+  border: 0;
+  padding: 2px 3px;
+  border-radius: 2px;
+}
+.tree-fold {
+  width: 20px;
+  flex-shrink: 0;
+}
+.tree-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-flag {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.tree-menu {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 6px;
+  gap: 4px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.tree-menu button {
+  padding: 4px 6px;
+}
+.object-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.object-fields:disabled {
+  opacity: 0.6;
+}
+.recovery-banner {
+  position: absolute;
+  z-index: 50;
+  top: 55px;
+  left: 250px;
+  right: 310px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 12px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.recovery-banner button {
+  margin-left: 6px;
+}
+
+/* Scene-editor layout: one viewport and one unified inspector sidebar. */
+[hidden] {
+  display: none !important;
+}
+.editor {
+  min-width: 760px;
+  min-height: 540px;
+}
+header.menubar {
+  height: 34px;
+  padding: 0 12px;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.menu-brand {
+  font-size: 11px;
+  letter-spacing: 1.2px;
+}
+.menubar nav {
+  gap: 0;
+}
+.menu {
+  position: relative;
+}
+:root .menu-trigger {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  height: 33px;
+  padding: 0 12px;
+}
+:root .menu-trigger[aria-expanded="true"] {
+  background: var(--field);
+}
+.menu-popup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 230px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+:root .menu-popup button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 24px;
+  height: 30px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  text-align: left;
+  padding: 4px 9px;
+}
+:root .menu-popup button:hover,
+:root .menu-popup button:focus-visible {
+  background: var(--field);
+}
+.menu-popup kbd {
+  color: var(--muted);
+  font: 10px inherit;
+}
+.document-name {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.menu-save-status {
+  color: var(--muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.workspace {
+  grid-template-columns: minmax(200px, 1fr) 330px;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+.sidebar-tabs {
+  height: 35px;
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+:root .sidebar-tabs button {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 11px;
+  color: var(--muted);
+}
+:root .sidebar-tabs button[aria-selected="true"] {
+  color: var(--text);
+  background: var(--field);
+  border-bottom: 2px solid var(--accent);
+}
+.sidebar-scene {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.sidebar .scene-panel {
+  height: 260px;
+  max-height: 55%;
+  min-height: 150px;
+  resize: vertical;
+  overflow: auto;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.sidebar .inspector {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.sidebar .panel-title {
+  height: 30px;
+  padding: 0 12px;
+}
+.sidebar .scene-toolbar {
+  float: right;
+  padding: 2px 6px;
+}
+.sidebar .scene-name {
+  margin: 6px 10px;
+  padding: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+}
+.sidebar .scene-tree {
+  padding: 4px 8px;
+}
+.sidebar .scene-tree > input {
+  padding: 5px 8px;
+  margin-bottom: 5px;
+}
+.sidebar .tree-root {
+  margin: 4px 0;
+  padding: 4px;
+  font-size: 10px;
+}
+.sidebar .tree-actions {
+  margin-bottom: 4px;
+}
+.sidebar .tree-help {
+  margin: 4px 2px;
+  font-size: 10px;
+}
+.sidebar-page {
+  overflow: auto;
+  flex: 1;
+  padding: 16px 14px;
+}
+.sidebar-page h3 {
+  margin: 8px 0 16px;
+  font-size: 11px;
+}
+.sidebar-page > button {
+  margin: 0 5px 8px 0;
+}
+.project-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin: 20px 0;
+  color: var(--muted);
+}
+.project-summary strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0;
+}
+.setting-row input[type="checkbox"] {
+  width: auto;
+}
+.setting-row select {
+  max-width: 120px;
+}
+.shortcuts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.shortcuts dd {
+  margin: 0;
+  text-align: right;
+}
+.compact-status {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 22px;
+}
+.assets.collapsed {
+  height: 30px;
+  overflow: hidden;
+}
+.assets.expanded {
+  height: 145px;
+}
+.assets .panel-title {
+  height: 30px;
+  padding: 0 10px;
+  gap: 8px;
+}
+:root .assets .asset-drawer-toggle {
+  margin-left: 0;
+  padding: 2px 4px;
+  font-weight: 500;
+}
+.asset-drawer-toggle span {
+  color: var(--muted);
+  font-weight: 400;
+}
+.asset-list {
+  height: 115px;
+}
+.viewport-footer {
+  background: transparent !important;
+  font-size: 10px;
+  pointer-events: none;
+}
+.viewport-bar {
+  background: transparent !important;
+  border-bottom: 0;
+}
+.viewport-bar > span:first-child {
+  border-bottom: 0;
+  font-size: 10px;
+}
+.recovery-banner {
+  top: 40px;
+  left: 12px;
+  right: 342px;
+}
+@media (max-width: 1050px) {
+  .workspace {
+    grid-template-columns: minmax(200px, 1fr) 300px;
+  }
+  header.menubar {
+    gap: 10px;
+  }
+  .menu-trigger {
+    padding: 0 8px;
+  }
+  .recovery-banner {
+    right: 312px;
+  }
+}
+.placement-controls {
+  top: 45px;
+  bottom: auto;
+  left: 12px;
+}
+.recovery-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar .tree-actions {
+  display: none;
+}
+.tree-row {
+  min-width: 0;
+  width: 100%;
+}
+.tree-label {
+  min-width: 0;
+}
+.tree-flag {
+  width: 18px;
+  padding: 0;
+}
+.tree-fold {
+  flex: 0 0 18px;
+  padding: 0;
+}
+.workspace {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.workspace > .viewport {
+  grid-column: 1;
+  grid-row: 1;
+}
+.workspace > .sidebar {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.workspace > .assets {
+  grid-column: 1;
+  grid-row: 2;
+}
+.asset-properties {
+  padding: 14px;
+}
+.asset-sharing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--muted);
+  padding-bottom: 12px;
+}
+.asset-sharing button {
+  font-size: 10px;
+  padding: 4px 6px;
+}
+.asset-property-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 13px 0;
+  font-size: 11px;
+}
+.asset-property-field input {
+  width: 116px;
+  padding: 6px 8px;
+}
+.asset-property-field input[type="color"] {
+  width: 48px;
+  height: 28px;
+  padding: 2px;
+}
+.asset-properties h3 {
+  font-size: 11px;
+  margin: 16px 0 12px;
+}
+.texture-property {
+  margin: 14px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+.texture-property label {
+  display: block;
+}
+.texture-property input {
+  margin-top: 7px;
+  padding: 5px;
+  font-size: 10px;
+}
+.texture-property > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+.texture-property small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 190px;
+  color: var(--muted);
+}
+.texture-property button {
+  font-size: 10px;
+  padding: 3px 6px;
+}
+.asset-color-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.asset-color-controls input[type="color"] {
+  width: 32px;
+}
+.asset-color-controls input:not([type="color"]) {
+  width: 80px;
+}
+
+.model-part-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 6px 0;
+  padding: 8px;
+  white-space: normal;
+}
+.world-properties {
+  padding: 12px 14px;
+}
+:root .world-properties h3 {
+  margin: 14px 0 10px;
+  padding-top: 10px;
+  font-size: 11px;
+}
+:root .world-properties > h3 {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+.world-properties .asset-property-field {
+  margin: 9px 0;
+}
+.world-properties select {
+  max-width: 150px;
+  padding: 5px;
+}
+.world-properties .field {
+  display: block;
+  margin: 9px 0;
+  font-size: 11px;
+}
+.world-properties input[type="file"] {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 5px;
+  font-size: 10px;
+}
+.world-properties small {
+  display: block;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.world-properties .notice {
+  display: block;
+  font-size: 11px;
+  color: #e9a09b;
+}
+.world-properties .project-buttons {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}

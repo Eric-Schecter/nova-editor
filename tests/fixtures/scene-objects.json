@@ -1,0 +1,150 @@
+{
+  "scene": {
+    "schemaVersion": 3,
+    "name": "Scene cameras & lights",
+    "nodes": [
+      {
+        "id": "camera-front",
+        "parentId": null,
+        "name": "Camera front",
+        "transform": {
+          "position": [
+            3.574181357703926,
+            4.078181289931019,
+            7.6648566567523195
+          ],
+          "rotation": [
+            -0.16953202249987684,
+            0.2131514098652129,
+            0.037584344535285495,
+            0.9614638770465723
+          ],
+          "scale": [
+            0.9999999999999999,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "projection": "perspective",
+          "focusDistance": 9,
+          "orthographicSize": 7.45584412271571,
+          "exposure": 1.2,
+          "primary": true
+        }
+      },
+      {
+        "id": "camera-side",
+        "parentId": null,
+        "name": "Camera side",
+        "transform": {
+          "position": [
+            7.7274066103125465,
+            3.070552360820166,
+            4.731671885514679e-16
+          ],
+          "rotation": [
+            -0.09229595564125725,
+            0.7010573846499779,
+            0.09229595564125725,
+            0.7010573846499779
+          ],
+          "scale": [
+            1,
+            1.0000000000000002,
+            1.0000000000000002
+          ]
+        },
+        "camera": {
+          "projection": "orthographic",
+          "focusDistance": 8,
+          "orthographicSize": 7,
+          "exposure": 1.2,
+          "primary": false
+        }
+      },
+      {
+        "id": "sun",
+        "parentId": null,
+        "name": "Sun",
+        "transform": {
+          "position": [
+            -1.8184824186332702,
+            2.9095718698132322,
+            3.63696483726654
+          ],
+          "rotation": [
+            -0.29739879066506125,
+            -0.21876351520375864,
+            -0.07020633102318434,
+            0.9266971213999302
+          ],
+          "scale": [
+            1,
+            1,
+            0.9999999999999999
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "color": [
+            1,
+            0.7,
+            0.4
+          ],
+          "intensity": 4,
+          "shadows": true,
+          "softness": 2,
+          "active": true
+        }
+      },
+      {
+        "id": "fill",
+        "parentId": null,
+        "name": "Alternate light",
+        "transform": {
+          "position": [
+            -4,
+            5,
+            -3
+          ],
+          "rotation": [
+            -0.34618861305875415,
+            -0.5198367907256845,
+            -0.24240387650610407,
+            0.7424038765061041
+          ],
+          "scale": [
+            1,
+            1,
+            0.9999999999999999
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 3.5,
+          "shadows": true,
+          "softness": 1,
+          "active": false
+        }
+      }
+    ],
+    "assets": {}
+  },
+  "inputCamera": {
+    "yaw": 25,
+    "pitch": 20,
+    "distance": 9,
+    "exposure": 1.2,
+    "target": [
+      0,
+      1,
+      0
+    ]
+  }
+}
