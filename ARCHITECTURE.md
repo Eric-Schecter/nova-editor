@@ -6,7 +6,7 @@
 
 以 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md) 为当前分工：nova-render 负责实例/原始空间、完整相机/视口、射线查询、运行时材质、场景阴影及雾效；nova-editor 负责层级/TRS计算、选择与gizmo策略、资产编辑、项目持久化和 SDK 版本管理。通用调试绘制和窗口/UI挂钩由库提供，布局和显示/输入策略由编辑器决定。
 
-上游正在进行多实例和原始空间的正式化；接入顺序为多实例/原始空间、相机/视口、拾取、材质/阴影/雾效。旧 SDK 扩展冻结为过渡实现，只有替代发布包通过双端构建、渲染及旧项目回归后才移除。不得直接将库的渲染实例结构当作编辑器场景格式，也不向渲染库迁移场景树/ECS。各扩展维护方与阶段记录于 `packages/render-contract/migration.json`，不把进行中的上游工作写成已发布能力。
+已接入 nova-render 0.2 配对包，原生/Web 依赖由版本、干净源码提交与 SHA-256 固定，旧实例、拾取、阴影、雾与 UI 私有补丁已退役。编辑器不再编译或修改渲染器源码；`RenderBridge` 只映射既有导航和项目字段到正式 API。库的渲染实例仍不充当编辑器文档/ECS。当前包是本地候选，并未创建 GitHub Release；开发归档按版本加源码提交区分，不能把同名文件当作稳定版本。已验证状态见 `packages/render-contract/migration.json` 和 `docs/SDK-OWNERSHIP.md`。
 
 ## 目标与范围
 

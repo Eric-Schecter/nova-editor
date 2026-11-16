@@ -1,3 +1,4 @@
+#include "../apps/desktop/src/RenderBridge.hpp"
 #include "Lighting.hpp"
 #include "Placement.hpp"
 #include <iostream>
@@ -13,7 +14,7 @@ int main(int argc, char** argv)
         cfg.width  = 1000;
         cfg.height = 740;
         cfg.title  = "Surface stacking regression";
-        render::Window window(cfg);
+        editor::RenderWindow window(cfg);
         editor::Json   scene = {{"nodes", editor::Json::array()}};
         auto           base = editor::identity(), moving = editor::identity();
         moving["position"] = {-.75, 8, -.5};

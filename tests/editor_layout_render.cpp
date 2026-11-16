@@ -1,3 +1,4 @@
+#include "../apps/desktop/src/RenderBridge.hpp"
 #define NOVA_EDITOR_TEST
 #include "../apps/desktop/src/main.cpp"
 int main(int argc, char** argv)
@@ -90,7 +91,7 @@ int main(int argc, char** argv)
         config.width  = 1440;
         config.height = 900;
         config.title  = "Nova layout render test";
-        render::Window window(config);
+        editor::RenderWindow window(config);
         e.window = &window;
         window.SetClearColor({.6f, .6f, .6f, 1});
         window.SetLighting(render::LightingMode::PBR);
@@ -125,7 +126,7 @@ int main(int argc, char** argv)
             throw std::runtime_error("Native submesh picking failed");
         e.syncSceneObjects();
         bool                regenerated = false;
-        render::OrbitCamera savedEditorView;
+        editor::OrbitCamera savedEditorView;
 
         while (window.PollEvents() && frames < 720)
         {

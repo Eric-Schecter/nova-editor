@@ -1,5 +1,6 @@
 #pragma once
 #include "Lighting.hpp"
+#include "RenderBridge.hpp"
 #include "SelectionTransform.hpp"
 namespace editor
 {
@@ -42,7 +43,7 @@ namespace editor
         m[15]               = 1;
         return decomposeTRS(m);
     }
-    inline Json createCamera(const std::string& id, const render::OrbitCamera& c)
+    inline Json createCamera(const std::string& id, const editor::OrbitCamera& c)
     {
         return {
           {"id", id},
@@ -93,7 +94,7 @@ namespace editor
                 return n["id"];
         return {};
     }
-    inline std::optional<render::OrbitCamera> sceneCamera(const Json& scene)
+    inline std::optional<editor::OrbitCamera> sceneCamera(const Json& scene)
     {
         auto id = primaryCamera(scene);
         if (id.empty())
@@ -109,8 +110,9 @@ namespace editor
                                  ? c["orthographicSize"].get<double>() / (2 * std::tan(3.141592653589793 / 8))
                                  : c["focusDistance"].get<double>();
         if (dot(up, cameraFrame({yaw, pitch, distance}).up) < .9999)
-            throw std::runtime_error("Camera roll unsupported by current SDK; adjust camera / parent rotation");
-        render::OrbitCamera out;
+            throw std::runtime_error(
+              "Camera roll is not connected to the editor preview; the SDK supports full view cameras");
+        editor::OrbitCamera out;
         out.yaw          = float(yaw);
         out.pitch        = float(pitch);
         out.distance     = float(distance);
@@ -150,7 +152,7 @@ namespace editor
             }
         return {};
     }
-    inline void captureCamera(Json& scene, const std::string& id, const render::OrbitCamera& c)
+    inline void captureCamera(Json& scene, const std::string& id, const editor::OrbitCamera& c)
     {
         writeNodeTransform(
           scene,

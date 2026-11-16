@@ -1,3 +1,4 @@
+#include "../apps/desktop/src/RenderBridge.hpp"
 #include <cmath>
 #include <iostream>
 #include <render/Window.hpp>
@@ -10,7 +11,7 @@ int main(int argc, char** argv)
         render::WindowConfig config;
         config.renderer.api =
           std::string(argv[2]) == "metal" ? render::GraphicsAPI::Metal : render::GraphicsAPI::Vulkan;
-        render::Window                     window(config);
+        editor::RenderWindow               window(config);
         std::vector<render::SceneAsset>    assets{{"mesh", argv[1]}};
         std::vector<render::SceneInstance> instances{{"back", "mesh"}, {"front", "mesh"}};
         instances[0].world[14] = -2;

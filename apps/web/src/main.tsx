@@ -1,3 +1,7 @@
+import {
+  createEditorRenderer,
+  previewMaterial,
+} from "../../../packages/render-contract/bridge";
 import { WorldPanel } from "./WorldPanel";
 import {
   defaultWorld,
@@ -474,10 +478,13 @@ function App() {
               /* @vite-ignore */ new URL("sdk/src/Nova.js", document.baseURI)
                 .href
             );
-            const next: Renderer = await sdk.createRenderer({
-              canvas: canvas.current,
-              shaderDirectory: new URL("sdk/generated/", document.baseURI).href,
-            });
+            const next: Renderer = createEditorRenderer(
+              await sdk.createRenderer({
+                canvas: canvas.current,
+                shaderDirectory: new URL("sdk/generated/", document.baseURI)
+                  .href,
+              }),
+            );
             if (!alive.current) {
               next.dispose();
               return;
@@ -1820,6 +1827,22 @@ function App() {
                     scene.nodes.filter((n) => n.assetId === node.assetId).length
                   }
                   disabled={busy || inheritedFlag(scene, node.id, "locked")}
+                  onPreviewMaterial={async (value, pending) => {
+                    if (!renderer.current || !node.assetId) return;
+                    const sdk = await import(
+                      /* @vite-ignore */ new URL(
+                        "sdk/src/Nova.js",
+                        document.baseURI,
+                      ).href
+                    );
+                    await previewMaterial(
+                      renderer.current,
+                      node.assetId,
+                      value,
+                      pending,
+                      sdk.loadMaterialImage,
+                    );
+                  }}
                   onApply={applyAsset}
                   onUnique={uniqueAsset}
                   onExpand={expandSelectedModel}

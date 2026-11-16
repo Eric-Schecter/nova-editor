@@ -3,6 +3,7 @@
 #include "Hierarchy.hpp"
 #include "Navigation.hpp"
 #include "Placement.hpp"
+#include "RenderBridge.hpp"
 #include "SceneObjects.hpp"
 #include "SelectionTransform.hpp"
 #include "ViewCube.hpp"
@@ -10,7 +11,7 @@
 #include <render/Window.hpp>
 namespace editor
 {
-    inline SurfaceQuery sceneSurfaceQuery(render::Window& window, const Json& scene)
+    inline SurfaceQuery sceneSurfaceQuery(editor::RenderWindow& window, const Json& scene)
     {
         return surfaceQuery(
           scene,
@@ -46,7 +47,7 @@ namespace editor
         int                           gestureButton = ImGuiMouseButton_Right;
         ImVec2                        origin{};
         Screen                        orbitStart;
-        render::OrbitCamera           orbitCamera;
+        editor::OrbitCamera           orbitCamera;
         ImVec2                        screen(Screen p) const { return {origin.x + float(p.x), origin.y + float(p.y)}; }
         void                          cancel(History& h)
         {
@@ -60,7 +61,7 @@ namespace editor
           bool                                                        readOnly,
           const std::string&                                          selected,
           const std::vector<std::string>&                             selections,
-          render::Window&                                             window,
+          editor::RenderWindow&                                       window,
           ImVec2                                                      pos,
           ImVec2                                                      area,
           Size                                                        full,
@@ -69,7 +70,7 @@ namespace editor
           const std::function<void(bool)>&                            frame,
           const std::function<void(const std::string&, bool)>&        select,
           const std::function<void(const std::string&)>&              error,
-          const std::function<void(render::OrbitCamera)>&             cameraChange)
+          const std::function<void(editor::OrbitCamera)>&             cameraChange)
         {
             if (readOnly)
             {

@@ -1,3 +1,4 @@
+#include "../apps/desktop/src/RenderBridge.hpp"
 #include "Transforms.hpp"
 #include <iostream>
 #include <render/Window.hpp>
@@ -16,7 +17,7 @@ int main(int argc, char** argv)
         config.width             = 900;
         config.height            = 700;
         config.title             = "Nova instance regression";
-        render::Window window(config);
+        editor::RenderWindow window(config);
         auto           camera = window.GetCamera();
         camera.distance       = 8;
         window.SetCamera(camera);

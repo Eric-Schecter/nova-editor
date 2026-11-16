@@ -127,7 +127,7 @@ export function sceneCamera(scene: Scene): Camera | null {
     target: add(m.slice(12, 15), mul(back, -distance)),
   };
   if (dot(up, cameraFrame(result).up) < 0.9999)
-    throw Error("当前 SDK 不支持相机滚转，请调整相机或父节点旋转");
+    throw Error("当前编辑器预览尚未接入相机滚转，请调整相机或父节点旋转");
   return result;
 }
 export function sceneDirectional(scene: Scene) {

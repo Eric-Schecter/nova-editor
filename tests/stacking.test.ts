@@ -224,16 +224,6 @@ test("surface filtering supplies include/exclude IDs to the SDK without scene mu
 });
 
 test("sloped triangles provide sampled surface height and empty AABB regions do not support models", async () => {
-  const { pickTriangles } = await import(
-    "../apps/web/public/sdk/src/Picking.js"
-  );
-  const vertices = new Float32Array(36);
-  [
-    [-1, 0, -1],
-    [1, 0, -1],
-    [0, 2, 1],
-  ].forEach((p, i) => vertices.set(p, i * 12));
-  const mesh = new Map([["slope", { data: { vertices } }]]);
   const s: Scene = {
     schemaVersion: 2,
     name: "Slope",
@@ -255,10 +245,19 @@ test("sloped triangles provide sampled surface height and empty AABB regions do 
       },
     ],
   };
-  const matrix = worldMatrices(s).get("ramp")!;
-  const query = surfaceQuery(s, (ray) =>
-    pickTriangles(mesh, [{ id: "ramp", assetId: "slope", world: matrix }], ray),
-  );
+  // Independent analytical ramp fixture: y=z+1 inside the triangular footprint.
+  const query = surfaceQuery(s, (ray) => {
+    const t =
+      (ray.origin[1] - ray.origin[2] - 1) /
+      (ray.direction[2] - ray.direction[1]);
+    if (t < 0 || !Number.isFinite(t)) return null;
+    const position = ray.origin.map((v, k) => v + t * ray.direction[k]);
+    return position[2] >= -1 &&
+      position[2] <= 1 &&
+      Math.abs(position[0]) <= (1 - position[2]) * 0.5
+      ? { id: "ramp", position }
+      : null;
+  });
   const bounds = {
     slope: { minimum: [-1, 0, -1], maximum: [1, 2, 1] },
     box: { minimum: [-0.1, 0, -0.1], maximum: [0.1, 1, 0.1] },

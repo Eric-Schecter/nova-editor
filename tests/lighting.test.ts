@@ -6,7 +6,6 @@ import {
   linearColor,
   rendererLight,
 } from "../packages/editor-core/src/lighting";
-import { copyShadowSettings } from "../apps/web/public/sdk/src/Lighting.js";
 const close = (a: number, b: number) =>
   assert.ok(Math.abs(a - b) < 1e-6, `${a} != ${b}`);
 test("lighting angles preserve the original light and remain normalized at UI limits", () => {
@@ -32,17 +31,4 @@ test("picked sRGB colors become linear light without gamma errors", () => {
   assert.deepEqual(linearColor("#000000"), [0, 0, 0]);
   assert.throws(() => linearColor("#fff"));
   assert.throws(() => linearColor("#zzzzzz"));
-});
-test("SDK shadow controls accept hard/off/soft, copy inputs, and reject invalid softness", () => {
-  const config = { enabled: true, softness: 4 },
-    copy = copyShadowSettings(config);
-  config.softness = 0;
-  assert.equal(copy.softness, 4);
-  assert.deepEqual(copyShadowSettings({ enabled: false, softness: 0 }), {
-    enabled: false,
-    softness: 0,
-  });
-  for (const softness of [-1, 5, NaN, Infinity])
-    assert.throws(() => copyShadowSettings({ enabled: true, softness }));
-  assert.throws(() => copyShadowSettings({ enabled: "yes", softness: 1 }));
 });

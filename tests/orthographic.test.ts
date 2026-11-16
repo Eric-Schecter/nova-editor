@@ -1,3 +1,6 @@
+import { renderCamera } from "../packages/render-contract/bridge";
+import { copyViewCamera } from "../apps/web/public/sdk/src/Camera.js";
+const validateCamera = (camera: any) => copyViewCamera(renderCamera(camera));
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -14,10 +17,7 @@ import {
   transform,
 } from "../packages/editor-core/src/viewport";
 import { standardViews } from "../packages/editor-core/src/view-cube";
-import {
-  sceneUniforms,
-  validateCamera,
-} from "../apps/web/public/sdk/src/ModelData.js";
+import { sceneUniforms } from "../apps/web/public/sdk/src/ModelData.js";
 import { emptyScene, identity } from "../packages/scene-schema/index";
 const close = (a: number, b: number) =>
   assert.ok(Math.abs(a - b) < 0.0001, `${a} != ${b}`);
@@ -33,7 +33,7 @@ test("all exact cardinal views match SDK raster projection and screen rays in bo
       const c = { ...view, distance: 8, exposure: 1, orthographic };
       validateCamera(c);
       const f = cameraFrame(c),
-        m = sceneUniforms(material, c, size.width / size.height);
+        m = sceneUniforms(material, renderCamera(c), size.width / size.height);
       for (const p of [
         [0.6, 0.8, 0.3],
         [-1, -0.7, -0.4],

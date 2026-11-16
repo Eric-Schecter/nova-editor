@@ -1,6 +1,34 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 const lock = JSON.parse(await readFile("nova-sdk.lock.json", "utf8"));
+if (lock.formatVersion >= 2) {
+  if (
+    lock.sourceDirty ||
+    lock.extensions.length ||
+    lock.channel !== "local-package"
+  )
+    throw Error("Expected a clean formal package without private extensions");
+  const manifestBytes = await readFile(".sdk/package/manifest.json");
+  if (
+    createHash("sha256").update(manifestBytes).digest("hex") !==
+    lock.package.manifestSha256
+  )
+    throw Error("Paired manifest checksum mismatch");
+  const manifest = JSON.parse(manifestBytes);
+  for (const path of [
+    ".sdk/native/share/nova-render/build-info.json",
+    "apps/web/public/sdk/generated/manifest.json",
+  ]) {
+    const metadata = JSON.parse(await readFile(path, "utf8"));
+    if (
+      metadata.sourceDirty ||
+      metadata.version !== lock.version ||
+      metadata.sourceCommit !== lock.sourceCommit ||
+      metadata.sourceCommit !== manifest.sourceCommit
+    )
+      throw Error("Mixed SDK provenance: " + path);
+  }
+}
 // A legacy extension must have an explicit upstream owner and migration phase.
 const migration = JSON.parse(
   await readFile("packages/render-contract/migration.json", "utf8"),

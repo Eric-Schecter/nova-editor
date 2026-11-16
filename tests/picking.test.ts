@@ -1,85 +1,48 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickTriangles } from "../apps/web/public/sdk/src/Picking.js";
-const world = () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-const vertices = new Float32Array([
-  -1, -1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, -1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, -1,
-  1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
-]);
-const meshes = new Map([["mesh", { data: { vertices } }]]);
-test("web SDK picks nearest actual triangles and not empty space inside bounds", () => {
-  const back = world();
-  back[14] = -2;
-  const instances = [
-    { id: "back", assetId: "mesh", world: back },
-    { id: "front", assetId: "mesh", world: world() },
+import { surfaceQuery } from "../packages/editor-core/src/placement";
+import { emptyScene, identity } from "../packages/scene-schema/index";
+test("editor filters visible instances and excludes moving nodes before the public SDK query", () => {
+  const scene = emptyScene();
+  scene.assets = { box: { path: "box.glb" } };
+  scene.nodes = [
+    {
+      id: "moving",
+      assetId: "box",
+      name: "Moving",
+      parentId: null,
+      transform: identity(),
+    },
+    {
+      id: "support",
+      assetId: "box",
+      name: "Support",
+      parentId: null,
+      transform: identity(),
+    },
+    {
+      id: "hidden",
+      assetId: "box",
+      name: "Hidden",
+      parentId: null,
+      transform: identity(),
+      hidden: true,
+    },
   ];
-  const hit = pickTriangles(meshes, instances, {
-    origin: [-0.25, -0.25, 3],
-    direction: [0, 0, -4],
+  let request: any;
+  const query = surfaceQuery(scene, (ray) => {
+    request = ray;
+    return { id: "support", position: [1, 2, 3] };
   });
-  assert.equal(hit?.id, "front");
-  assert.equal(hit?.distance, 3);
-  assert.equal(
-    pickTriangles(meshes, instances, {
-      origin: [0.75, 0.75, 3],
-      direction: [0, 0, -1],
-    }),
-    null,
+  assert.deepEqual(
+    query({ origin: [0, 10, 0], direction: [0, -1, 0] }, new Set(["moving"])),
+    { id: "support", position: [1, 2, 3] },
   );
-});
-test("web SDK picking supports mirrored nonuniform instances, ignores singular matrices", () => {
-  const m = world();
-  m[0] = -2;
-  m[5] = 0.5;
-  const instances = [{ id: "mirrored", assetId: "mesh", world: m }];
-  assert.equal(
-    pickTriangles(meshes, instances, {
-      origin: [0.5, -0.125, 3],
-      direction: [0, 0, -1],
-    })?.id,
-    "mirrored",
-  );
-  m[0] = 0;
-  assert.equal(
-    pickTriangles(meshes, instances, {
-      origin: [0, 0, 3],
-      direction: [0, 0, -1],
-    }),
-    null,
-  );
-  assert.throws(() =>
-    pickTriangles(meshes, instances, {
-      origin: [0, 0, 3],
-      direction: [0, 0, 0],
-    }),
-  );
-});
-
-test("SDK filters instances before nearest-hit selection, including coincident triangles", () => {
-  const instances = [
-    { id: "self", assetId: "mesh", world: world() },
-    { id: "support", assetId: "mesh", world: world() },
-  ];
-  const ray = { origin: [-0.25, -0.25, 3], direction: [0, 0, -1] };
-  assert.equal(
-    pickTriangles(meshes, instances, { ...ray, excludeIds: ["self"] })?.id,
-    "support",
-  );
-  assert.equal(
-    pickTriangles(meshes, instances, { ...ray, includeIds: ["support"] })?.id,
-    "support",
-  );
-  assert.equal(
-    pickTriangles(meshes, instances, {
-      ...ray,
-      includeIds: ["self"],
-      excludeIds: ["self"],
-    }),
-    null,
-  );
-  assert.equal(
-    pickTriangles(meshes, instances, { ...ray, includeIds: ["missing"] }),
-    null,
-  );
+  assert.deepEqual(request.includeIds, ["moving", "support"]);
+  assert.deepEqual(request.excludeIds, ["moving"]);
+  const invalid = surfaceQuery(scene, () => ({
+    id: "hidden",
+    position: [0, 0, 0],
+  }));
+  assert.equal(invalid({ origin: [0, 1, 0], direction: [0, -1, 0] }), null);
 });

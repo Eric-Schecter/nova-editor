@@ -1,3 +1,6 @@
+import { renderCamera } from "../packages/render-contract/bridge";
+import { copyViewCamera } from "../apps/web/public/sdk/src/Camera.js";
+const validateCamera = (camera: any) => copyViewCamera(renderCamera(camera));
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -36,7 +39,6 @@ import {
   norm,
 } from "../packages/editor-core/src/viewport";
 import { eulerQuaternion } from "../packages/scene-schema/transforms";
-import { validateCamera } from "../apps/web/public/sdk/src/ModelData.js";
 const fixture = JSON.parse(
   readFileSync("tests/fixtures/scene-objects.json", "utf8"),
 );

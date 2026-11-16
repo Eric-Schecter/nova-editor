@@ -1,3 +1,4 @@
+#include "../apps/desktop/src/RenderBridge.hpp"
 #include <cmath>
 #include <iostream>
 #include <render/Window.hpp>
@@ -12,7 +13,7 @@ int main(int argc, char** argv)
         cfg.width  = 1000;
         cfg.height = 740;
         cfg.title  = "Source units and viewport regression";
-        render::Window               window(cfg);
+        editor::RenderWindow         window(cfg);
         render::ParameterPanelConfig ui;
         ui.showBuiltinPanel = false;
         ui.sceneViewport    = [] { return std::array<float, 4>{140, 100, 620, 480}; };

@@ -1,3 +1,4 @@
+#include "../apps/desktop/src/RenderBridge.hpp"
 #include "../apps/desktop/src/SceneObjects.hpp"
 #include <iostream>
 void require(bool value, const char* text)
@@ -41,7 +42,7 @@ int main(int argc, char** argv)
               {c.yaw, c.pitch, c.distance, c.orthographic, {c.target[0], c.target[1], c.target[2]}});
             require(editor::dot(frame.forward, ray.direction) > .9999, "Pole camera ray mismatch");
         }
-        render::OrbitCamera capture;
+        editor::OrbitCamera capture;
         capture.yaw      = -40;
         capture.pitch    = 30;
         capture.distance = 7;

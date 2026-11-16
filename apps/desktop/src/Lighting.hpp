@@ -1,4 +1,5 @@
 #pragma once
+#include "RenderBridge.hpp"
 #include <cmath>
 #include <render/Model.hpp>
 namespace editor

@@ -3,6 +3,7 @@
 #include "Lighting.hpp"
 #include "ModelEditing.hpp"
 #include "Persistence.hpp"
+#include "RenderBridge.hpp"
 #include "SceneObjectInspector.hpp"
 #include "WorldInspector.hpp"
 #define GLFW_INCLUDE_NONE
@@ -60,7 +61,7 @@ struct Editor
     std::string            selected, status = "Ready", preview;
     char                   projectPath[1024] = "output/workspace/project.json", modelPath[1024] = "", name[256] = "";
     std::vector<std::function<void()>>    pending;
-    render::Window*                       window = nullptr;
+    editor::RenderWindow*                 window = nullptr;
     std::filesystem::path                 assetRoot, helperRoot;
     editor::Json                          renderDocument;
     std::string                           renderRoot;
@@ -288,7 +289,7 @@ struct Editor
     }
     editor::SceneObjectInspector sceneObjectInspector;
     bool                         mainPreview = false;
-    render::OrbitCamera          editorCamera;
+    editor::OrbitCamera          editorCamera;
     std::string                  sceneViewKey, cameraNotice;
     void                         addSceneObject(const std::string& kind)
     {
@@ -366,7 +367,7 @@ struct Editor
             environmentKey = mapKey;
         }
         window->SetEnvironment(editor::environmentSettings(world));
-        auto color = editor::worldColor(world["background"]["color"]);
+        auto color = editor::worldColor(world["background"]["color"], false);
         window->SetClearColor({color[0], color[1], color[2], 1});
         auto light = editor::sceneDirectional(history.scene);
         window->SetLighting(lit ? render::LightingMode::PBR : render::LightingMode::Unlit);
@@ -543,6 +544,42 @@ struct Editor
                             doc, editor::assets::textureSlots[i], editor::assets::readBytes(paths[i]));
                       else if (remove[i])
                           doc = editor::assets::applyTexture(doc, editor::assets::textureSlots[i], std::nullopt);
+                  }
+                  if (window)
+                  {
+                      const auto assetId = editor::nodeById(history.scene, id)["assetId"].get<std::string>();
+                      if (window->GetSceneAssetBounds(assetId))
+                      {
+                          auto slots = window->GetMaterials(assetId);
+                          for (uint32_t slot = 0; slot < slots.size(); slot++)
+                          {
+                              auto value = slots[slot];
+                              value.name = material["name"];
+                              for (int k = 0; k < 3; k++)
+                              {
+                                  value.baseColor[k] = material["color"][k];
+                                  value.emissive[k]  = material["emissive"][k];
+                              }
+                              value.metallic                       = material["metallic"];
+                              value.roughness                      = material["roughness"];
+                              value.normalScale                    = material["normalScale"];
+                              value.occlusionStrength              = material["occlusion"];
+                              std::optional<render::Image>* maps[] = {
+                                &value.baseColorTexture,
+                                &value.normalTexture,
+                                &value.metallicRoughnessTexture,
+                                &value.occlusionTexture,
+                                &value.emissiveTexture};
+                              for (size_t k = 0; k < 5; k++)
+                              {
+                                  if (!paths[k].empty())
+                                      *maps[k] = render::LoadMaterialImage(paths[k]);
+                                  else if (remove[k])
+                                      maps[k]->reset();
+                              }
+                              window->SetMaterial(slot, value, assetId);
+                          }
+                      }
                   }
                   doc = editor::assets::applyMaterial(doc, material);
                   writeAssetVersion(id, editor::assets::writeGLB(doc));
@@ -1040,7 +1077,7 @@ struct Editor
                 environmentKey = mapKey;
             }
             window->SetEnvironment(editor::environmentSettings(world));
-            auto color = editor::worldColor(world["background"]["color"]);
+            auto color = editor::worldColor(world["background"]["color"], false);
             window->SetClearColor({color[0], color[1], color[2], 1});
             auto light = editor::sceneDirectional(history.scene);
             window->SetDirectionalLight(light ? light->light : config.light());
@@ -1705,7 +1742,7 @@ struct Editor
               }
           },
           [this](const std::string& error) { status = error; },
-          [this](render::OrbitCamera camera) { action([this, camera] { window->SetCamera(camera); }); });
+          [this](editor::OrbitCamera camera) { action([this, camera] { window->SetCamera(camera); }); });
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {5, 4});
         panel("##ViewportOptions", {std::max(8.f, center - 234), top + 8}, {226, 36}, false);
         ImGui::BeginDisabled(tools.drag.has_value());
@@ -1997,7 +2034,7 @@ int main(int argc, char** argv)
         config.width  = 1440;
         config.height = 900;
         config.title  = "Nova Editor - Native";
-        render::Window window(config);
+        editor::RenderWindow window(config);
         editor.window = &window;
         window.SetClearColor({.6f, .6f, .6f, 1});
         window.SetLighting(render::LightingMode::PBR);

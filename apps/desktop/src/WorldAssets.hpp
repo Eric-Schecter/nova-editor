@@ -1,5 +1,6 @@
 #pragma once
 #include "Assets.hpp"
+#include "RenderBridge.hpp"
 #include "World.hpp"
 #include <render/Model.hpp>
 namespace editor
@@ -62,10 +63,10 @@ namespace editor
         }
         return out;
     }
-    inline render::EnvironmentSettings environmentSettings(const Json& world)
+    inline editor::EnvironmentSettings environmentSettings(const Json& world)
     {
         validateWorld(world);
-        render::EnvironmentSettings out;
+        editor::EnvironmentSettings out;
         const auto&                 e = world["environment"];
         const auto&                 f = world["fog"];
         out.rotation                  = e["rotation"];

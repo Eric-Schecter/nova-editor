@@ -1,20 +1,23 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "reviewedOn": "2026-11-16",
   "upstreamRepository": "https://github.com/Eric-Schecter/nova-render",
   "decisionThreadId": "01a1cdaa-e9e5-7a51-8532-7ebad6034aeb",
   "decisionTurnId": "01a1e25b-1f66-7351-9f57-ad6dc26280c9",
-  "policy": "Rendering implementation is maintained by nova-render. Local extensions are transitional and remain installed until a matching packaged native/Web replacement passes editor regression. Recorded upstream status is a reviewed snapshot, not a live capability probe.",
+  "policy": "Rendering implementation is supplied by a clean paired nova-render package. Private extensions are retired; editor adapters retain project, navigation and authoring semantics.",
   "phases": [
     {
       "id": "instances-source-space",
-      "upstreamStatus": "in-progress",
+      "upstreamStatus": "validated",
       "scope": "多实例、共享资源、独立世界变换、原始尺寸和原点",
-      "extensions": ["scene-instances-v1", "source-model-space-v1"]
+      "extensions": [
+        "scene-instances-v1",
+        "source-model-space-v1"
+      ]
     },
     {
       "id": "camera-viewport",
-      "upstreamStatus": "planned",
+      "upstreamStatus": "validated",
       "scope": "完整相机、正交与透视、FOV/裁剪、完整朝向、视口与可选窗口/UI集成",
       "extensions": [
         "camera-poles-v1",
@@ -27,13 +30,16 @@
     },
     {
       "id": "ray-query",
-      "upstreamStatus": "planned",
+      "upstreamStatus": "validated",
       "scope": "世界空间射线查询、稳定实例ID、命中位置和距离、过滤与后续加速",
-      "extensions": ["scene-picking-v1", "scene-picking-filter-v1"]
+      "extensions": [
+        "scene-picking-v1",
+        "scene-picking-filter-v1"
+      ]
     },
     {
       "id": "materials-shadows-atmosphere",
-      "upstreamStatus": "planned",
+      "upstreamStatus": "validated",
       "scope": "运行时材质槽、场景阴影、雾效及环境加载与清除",
       "extensions": [
         "scene-shadow-map-metal-web-v1",
@@ -47,86 +53,86 @@
     "scene-instances-v1": {
       "implementationOwner": "nova-render",
       "phase": "instances-source-space",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "source-model-space-v1": {
       "implementationOwner": "nova-render",
       "phase": "instances-source-space",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "camera-poles-v1": {
       "implementationOwner": "nova-render",
       "phase": "camera-viewport",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "orthographic-raster-camera-v1": {
       "implementationOwner": "nova-render",
       "phase": "camera-viewport",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "scene-viewport-rect-v1": {
       "implementationOwner": "nova-render",
       "phase": "camera-viewport",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "parameter-panel-draw-ui-v1": {
       "implementationOwner": "nova-render",
       "phase": "camera-viewport",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "ui-configuration-v1": {
       "implementationOwner": "nova-render",
       "phase": "camera-viewport",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "window-escape-policy-v1": {
       "implementationOwner": "nova-render",
       "phase": "camera-viewport",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "scene-picking-v1": {
       "implementationOwner": "nova-render",
       "phase": "ray-query",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "scene-picking-filter-v1": {
       "implementationOwner": "nova-render",
       "phase": "ray-query",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "scene-shadow-map-metal-web-v1": {
       "implementationOwner": "nova-render",
       "phase": "materials-shadows-atmosphere",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "scene-light-settings-v1": {
       "implementationOwner": "nova-render",
       "phase": "materials-shadows-atmosphere",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "scene-raster-fog-v1": {
       "implementationOwner": "nova-render",
       "phase": "materials-shadows-atmosphere",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     },
     "environment-clear-v1": {
       "implementationOwner": "nova-render",
       "phase": "materials-shadows-atmosphere",
-      "editorDisposition": "transitional-adapter",
-      "replacementValidated": false
+      "editorDisposition": "retired",
+      "replacementValidated": true
     }
   },
   "editorResponsibilities": [
@@ -138,5 +144,7 @@
     "project-save-recovery-and-schema-migration",
     "layout-shortcuts-and-editor-overlays",
     "sdk-download-lock-and-upgrade-validation"
-  ]
+  ],
+  "packageVersion": "0.2.0",
+  "sourceCommit": "9c133a259c75f619bc0631188c56fb69116d8089"
 }

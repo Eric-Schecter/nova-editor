@@ -30,7 +30,7 @@
 - 背景可选纯色（sRGB 十六进制）或环境贴图；纯色背景时环境贴图仍参与模型光照与反射。雾支持关闭、线性（起止距离）和指数平方（密度），可编辑颜色。雾影响模型、地面和网格，天空保持原图；透视、正交和主相机预览均适用。
 - 点击“应用场景环境 / Apply environment”提交草稿，支持撤销重做。导入贴图立即生效；移除贴图后点击应用，恢复摄影棚补光。
 - 设置与贴图随项目保存、ZIP 导出、另存为及本机恢复；采用 schema v4，继续读取 v1–v3。模型编辑、新建灯光/相机不会降级格式；旧编辑器不能读取 v4。另存为保留撤销历史使用的贴图。
-- [SDK 扩展与重建流程](docs/SDK-ATMOSPHERE.md)记录本次配对依赖、源码快照和更新边界。
+- [SDK 依赖说明](docs/SDK-OWNERSHIP.md)记录配对包安装、校验和责任边界。
 
 ## 场景灯光与相机
 
@@ -38,8 +38,8 @@
 - 方向光对象页编辑局部方位/俯仰、线性颜色（界面输入 sRGB 十六进制）、强度 0–100、阴影开关及柔和度 0–4，点击“应用节点设置 / Apply node settings”提交。位置只影响辅助图标，旋转影响照射方向；缩放不改变光照。当前 SDK 同时渲染一个方向光，点击“设为场景光源 / Use as scene light”切换；隐藏活动光会关闭其直射与阴影，摄影棚环境补光保留。
 - 相机对象页支持透视/正交、目标距离 0.05–100、正交视野高度 0.05–80、曝光 0.01–16，以及节点位置和朝向。“从编辑视角更新相机 / Capture editor view”记录当前编辑视角；“设为主相机 / Set main camera”切换项目的主相机。
 - 点击“预览主相机 / Preview main camera”或视图菜单进入主相机画面；此时辅助线、gizmo 和相机导航停用，编辑器原视角保留。切换其他主相机或修改其参数会更新画面；点击“返回编辑视角 / Editor view”恢复原视角。打开、恢复项目保留主相机标记，默认使用编辑视角，按需进入预览。
-- 视口显示可点选的相机示意视锥和方向光图标，可与其他节点整体变换；F 聚焦节点辅助体。辅助图形不作为网格资源保存或参与阴影。方位/俯仰输入用于无滚转朝向；完整 XYZ 旋转仍可编辑，但当前 SDK 无法预览滚转相机，会明确提示并退出预览。视锥辅助体是示意，不表示真实远裁剪范围。
-- 当前 SDK 相机固定垂直 FOV 45°、裁剪 0.01–200，不支持点光/聚光、多方向光叠加、滚转及自定义 FOV/裁剪面。目标距离仅决定观察目标与正交换算，不提供景深。光照和相机的方向继承祖先旋转，节点位置继承完整父级变换；自身缩放不改变镜头或光照。
+- 视口显示可点选的相机示意视锥和方向光图标，可与其他节点整体变换；F 聚焦节点辅助体。辅助图形不作为网格资源保存或参与阴影。方位/俯仰输入用于无滚转朝向；完整 XYZ 旋转仍可编辑，但当前编辑器主相机预览尚未接入滚转，会明确提示并退出预览。视锥辅助体是示意，不表示真实远裁剪范围。
+- 当前编辑器相机面板固定垂直 FOV 45°、裁剪 0.01–200；SDK 本身支持完整姿态和镜头。点光/聚光、多方向光叠加，以及编辑器滚转和自定义 FOV/裁剪面板未在本次接入。目标距离仅决定观察目标与正交换算，不提供景深。光照和相机的方向继承祖先旋转，节点位置继承完整父级变换；自身缩放不改变镜头或光照。
 - 包含这些组件的项目使用 schema v3，双端继续读取 v1/v2；新增几何体、导入模型不会将 v3/v4 降级。节点参数和唯一主相机/活动光标记纳入保存、本机恢复和撤销；编辑视角与预览状态不写入场景。旧版本编辑器不能读取 v3。
 - 网页“文件 → 灯光与相机示例”；桌面运行 `npm run fixtures:scene-objects` 后打开 `output/scene-objects-study/project.json`。网页项目页另有“下载项目包”，用于直接导出 ZIP；下载不清除未保存标记与恢复副本，确认写入完成的文件选择器保存才更新保存基线。
 - 变换数值输入按 Enter 或失焦时一次提交，避免逐字符重绘导致焦点丢失；“应用节点设置”只提交上方节点参数草稿。
@@ -91,7 +91,7 @@
 ```sh
 pnpm install --frozen-lockfile
 pnpm sdk:verify
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j 6
 ./build/nova_editor.app/Contents/MacOS/nova_editor
 pnpm dev:web
@@ -116,25 +116,20 @@ pnpm dev:web
 
 ## SDK 依赖与分工
 
-渲染底层能力由 nova-render 维护；编辑器负责文档、交互、保存及版本接入。已按上游对话确认的 **多实例/原始空间 → 完整相机/视口 → 拾取 → 材质/阴影/雾效** 顺序调整，[详细分工与验收条件](docs/SDK-OWNERSHIP.md)。上游目前正在处理第一批正式 API，未视为已交付。
-
-当前仍使用已验证的 local-dev SDK，`.sdk/` 与网页 public/sdk 为本机缓存；锁文件记录源码快照、补丁及产物 SHA-256。它不是正式发布包；历史扩展标记不代表正式 SDK 已具备相同 API。正式包通过双端回归后再逐项移除补丁，编辑器不继续独立维护渲染后端。
-
-现有环境/雾效快照的重建命令见 [SDK-ATMOSPHERE.md](docs/SDK-ATMOSPHERE.md)。普通 `sdk:stage` 会拒绝覆盖此扩展组合；不要先安装相邻工作区生成的原生库再运行 stage，否则可能先破坏已验证依赖。日常完整性及扩展分工校验：
+渲染由 nova-render 0.2 的 native/Web 配对包提供；编辑器负责项目、交互、保存和资源版本。已替换多实例/原始空间、完整相机与视口、BVH 拾取、多材质槽、GPU 场景阴影、雾和环境清除，旧私有渲染补丁已退役。详细边界和验收见 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md)。
 
 ```sh
+pnpm sdk:install ../nova-v2/build/packages/0.2.0-9c133a2/manifest.json
 pnpm sdk:verify
 ```
 
-未来依赖从 GitHub Releases 获取固定版本的配对 native/Web 包，原生按平台/架构/编译器/Runtime/配置选择，Web 使用正式 `.tgz` 与预编译资源；候选包先放独立缓存验证。当前远程下载器和正式包迁移尚未完成。nlohmann/json 是编辑器自身的场景序列化依赖，不要求渲染库承担编辑器 JSON/schema。示例模型及环境资源由编辑器自行提供。
+当前包已本地构建验证，尚未发布 GitHub Release。安装器校验包 SHA-256、平台/架构和配对来源；`.sdk/`、网页 `public/sdk/` 为可重建安装缓存。材质面板调用正式运行时 API，同时保留 GLB 版本、撤销和项目恢复。nlohmann/json 仍是编辑器自己的序列化依赖。
 
 SDK 使用 UI 回调提交 ImGui 控件；不可在回调内重入 Renderer。应用把文件和渲染操作排队到 DrawFrame 之后执行。回调使用安装包中的相同 ImGui 版本。公共头变更影响 ABI，不能拿旧二进制搭配新头文件。
 
-表面堆叠依赖 `scene-picking-filter-v1`：原生 `render::Ray` 与网页 `pickScene(ray)` 均支持 `includeIds` / `excludeIds`。过滤在最近三角形命中之前执行，排除优先；空 includeIds 表示全部实例。这样可以忽略辅助网格和选中子树，并正确处理自身底面与支撑面重合的情况。已重新编译安装原生依赖、暂存 Web SDK 并更新锁文件；最小上游变更见 `docs/nova-surface-picking.patch`。
+表面堆叠使用正式 `Ray.includeIds/excludeIds` 与 BVH 拾取，过滤先于最近命中，辅助体、隐藏对象和选中子树由编辑器决定排除。
 
-阴影依赖 `scene-shadow-map-metal-web-v1`。Nova 的静态不透明实例新增可选 `castShadow`（默认 true）；编辑器辅助对象设置为 false。1024² 阴影深度由 CPU 按真实世界三角形光栅化并缓存，GPU 使用可调 5×5 PCF、法线偏移与接收面深度梯度修正；模型变换或光向变化才重建，单纯导航复用缓存。当前是单方向光、单张贴图方案，没有级联或透明阴影；场景跨度很大时精度下降，大量高面数实例的 CPU 更新成本仍需后续优化。Vulkan/DX12 暂未接入阴影，原有绘制路径不变；最小 SDK 变更见 `docs/nova-scene-shadows.patch`。修改 HLSL 后须在 Nova 工程运行 `pnpm shaders:webgpu`，再暂存匹配的 Web shader 包。
-
-可调阴影接口依赖 `scene-light-settings-v1`：原生 `SetShadows(SceneShadowSettings)` / `GetShadows()`，网页 `setShadows({ enabled, softness })` / `getShadows()`，柔和度有效范围 [0,4]，无效输入会拒绝。该类型与 Nova 独立 ShadowView 示例的 ShadowSettings 分开；本次未修改独立示例。调整开关或柔和度只更新阴影 uniform，关闭时不重建阴影深度；恢复开启后会按最新场景和光向更新。最小变更见 `docs/nova-light-settings.patch`，必须使用重新编译的 SDK 和匹配 shader。
+场景阴影使用正式 `SetShadows` / `setShadows`，由 GPU 遍历共享 BVH 计算，不再维护 CPU 深度贴图。`castShadow` 默认 true，编辑器辅助体与不可见资源占位实例设为 false；柔和度 0 为硬阴影，范围 0–4，采样 1–16，偏移按世界单位设置。该接口与独立 ShadowView 实验示例分开。当前验证 Metal、macOS Vulkan/MoltenVK 和 Chrome WebGPU；Windows/Linux 真机仍需单独验收。
 
 ## 项目互通
 

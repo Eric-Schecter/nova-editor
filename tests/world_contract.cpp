@@ -1,3 +1,4 @@
+#include "../apps/desktop/src/RenderBridge.hpp"
 #define NOVA_EDITOR_TEST
 #include "../apps/desktop/src/main.cpp"
 void require(bool v, const char* text)
@@ -56,7 +57,7 @@ int main(int argc, char** argv)
             config.width  = 1000;
             config.height = 700;
             config.title  = "Nova atmosphere regression";
-            render::Window w(config);
+            editor::RenderWindow w(config);
             auto           model = root / "resources/viewport/ground.glb";
             w.SetScene({{"ground", model}}, {{"ground", "ground"}});
             w.LoadEnvironment(temp / "source/assets/studio.nenv");

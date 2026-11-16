@@ -54,6 +54,7 @@ export function AssetProperties({
   users,
   disabled,
   onApply,
+  onPreviewMaterial,
   onUnique,
   onExpand,
 }: {
@@ -62,6 +63,12 @@ export function AssetProperties({
   users: number;
   disabled: boolean;
   onApply: (bytes: Uint8Array) => void;
+  onPreviewMaterial?: (
+    material: Material,
+    pending: Partial<
+      Record<TextureSlot, { bytes: Uint8Array; name: string } | null>
+    >,
+  ) => Promise<void>;
   onUnique: () => void;
   onExpand: () => void;
 }) {
@@ -78,6 +85,7 @@ export function AssetProperties({
       return { doc: null, geometry: null, material: null, error: String(e) };
     }
   }, [bytes]);
+  const [applying, setApplying] = useState(false);
   const [geometry, setGeometry] = useState(parsed.geometry),
     [material, setMaterial] = useState(parsed.material),
     [status, setStatus] = useState(""),
@@ -114,7 +122,9 @@ export function AssetProperties({
       />
     </label>
   );
-  const apply = () => {
+  const apply = async () => {
+    if (applying) return;
+    setApplying(true);
     try {
       if (mode === "geometry") {
         if (!geometry) return;
@@ -125,11 +135,14 @@ export function AssetProperties({
           if (Object.hasOwn(pending, t.key))
             next = applyTexture(next, t.key, pending[t.key]?.bytes ?? null);
         next = applyMaterial(next, material!);
+        await onPreviewMaterial?.(material!, pending);
         onApply(writeGLB(next));
       }
       setStatus("");
     } catch (e) {
       setStatus(String(e));
+    } finally {
+      setApplying(false);
     }
   };
   async function file(slot: TextureSlot, input: HTMLInputElement) {
@@ -194,7 +207,11 @@ export function AssetProperties({
                   />
                 </label>
               ))}
-              <button className="primary" onClick={apply}>
+              <button
+                className="primary"
+                disabled={applying || disabled}
+                onClick={apply}
+              >
                 应用几何体
               </button>
             </>
@@ -298,7 +315,11 @@ export function AssetProperties({
                   </div>
                 );
               })}
-              <button className="primary" onClick={apply}>
+              <button
+                className="primary"
+                disabled={applying || disabled}
+                onClick={apply}
+              >
                 应用材质
               </button>
             </>
