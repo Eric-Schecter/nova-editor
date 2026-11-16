@@ -5,7 +5,7 @@ if (lock.formatVersion >= 2) {
   if (
     lock.sourceDirty ||
     lock.extensions.length ||
-    lock.channel !== "local-package"
+    !["local-package", "github-release"].includes(lock.channel)
   )
     throw Error("Expected a clean formal package without private extensions");
   const manifestBytes = await readFile(".sdk/package/manifest.json");

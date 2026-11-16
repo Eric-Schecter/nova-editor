@@ -1,6 +1,6 @@
 {
   "formatVersion": 2,
-  "channel": "local-package",
+  "channel": "github-release",
   "releaseId": null,
   "sourceCommit": "9c133a259c75f619bc0631188c56fb69116d8089",
   "sourceDirty": false,
@@ -9,6 +9,7 @@
   "version": "0.2.0",
   "extensions": [],
   "package": {
+    "manifestUrl": "https://github.com/Eric-Schecter/nova-render/releases/download/v0.2.0/manifest.json",
     "manifestSha256": "d546329537992168c44eae846ccbabbe910e2cf832273794f685a4db8859b431",
     "native": {
       "file": "nova-render-sdk-0.2.0-darwin-arm64-appleclang-release.zip",

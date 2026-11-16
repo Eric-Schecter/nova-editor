@@ -10,6 +10,13 @@
 - nova-render 自身验证了 GPU 硬/软阴影像素、取消投影和移动，以及原生/Web/AA 部分雾混合的颜色一致性。编辑器不再依赖旧 CPU 阴影和私有拾取函数的实现测试。
 - 原生当前验证范围为 macOS ARM64 Metal 与 Vulkan/MoltenVK；网页为 Chrome WebGPU。DXIL 编译通过，但未声称完成 Windows/Linux 真机运行验证。
 
+## GitHub Release 安装验收（2026-11-16）
+
+- 发布 `v0.2.0`：C++ macOS ARM64 SDK、Web npm 包、配对 manifest 和 SHA256SUMS；源码仍为上方干净提交。
+- 实际执行 `pnpm sdk:install https://github.com/Eric-Schecter/nova-render/releases/download/v0.2.0/manifest.json`，下载并安装 249 个文件，`sdk:verify` 通过；锁定来源为 `github-release`。
+- 下载来源校验拒绝非官方或 HTTP URL，失败不改变现有锁文件。
+- 从 Release 安装后，58 项业务测试及网页材质、贴图、相机、阴影、环境/雾效、项目 ZIP 恢复和 Helmet/Avocado 真实工程回归通过。
+
 以下是迁移前的历史记录，其中私有 SDK 标记和补丁路径已退役，不作为当前安装说明。
 
 ---

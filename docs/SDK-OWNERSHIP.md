@@ -1,11 +1,11 @@
 # Nova Render 与编辑器分工
 
-编辑器现使用 nova-render **0.2 配对包**，已验证的源码提交由 `nova-sdk.lock.json` 和包内元数据记录。当前是本地已构建候选包，按版本加源码提交 `0.2.0-9c133a2` 区分，尚未创建 GitHub Release。原生库、头文件、Web 模块和预编译 shader 来自同一干净提交；SDK 不再在编辑器中打补丁或重新编译。
+编辑器现使用 nova-render **0.2 配对包**，已验证的源码提交由 `nova-sdk.lock.json` 和包内元数据记录。版本 `0.2.0` 已发布到 [GitHub Release](https://github.com/Eric-Schecter/nova-render/releases/tag/v0.2.0)，源码为 `9c133a2`。原生库、头文件、Web 模块和预编译 shader 来自同一干净提交；SDK 不再在编辑器中打补丁或重新编译。
 
 ## 依赖安装
 
 ```sh
-pnpm sdk:install ../nova-v2/build/packages/0.2.0-9c133a2/manifest.json
+pnpm sdk:install https://github.com/Eric-Schecter/nova-render/releases/download/v0.2.0/manifest.json
 pnpm sdk:verify
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j 6
@@ -14,7 +14,7 @@ ctest --test-dir build --output-on-failure
 pnpm build:web
 ```
 
-安装器在替换前核对包版本、平台/架构、全部必需功能、SHA-256 及 native/Web 源码提交。`.sdk/` 和 `apps/web/public/sdk/` 是安装缓存，不入 Git。`sdk:verify` 检查文件哈希及双方包内来源信息；禁止混用新版头文件和旧静态库。发布包下载器仍未实现，安装接受本地配对 manifest。nlohmann/json 是编辑器自己的序列化依赖，保留在 `.sdk/support`，不属于渲染扩展。
+安装器在替换前核对包版本、平台/架构、全部必需功能、SHA-256 及 native/Web 源码提交。`.sdk/` 和 `apps/web/public/sdk/` 是安装缓存，不入 Git。`sdk:verify` 检查文件哈希及双方包内来源信息；禁止混用新版头文件和旧静态库。安装接受正式 GitHub Release manifest 的 HTTPS URL 或本地配对 manifest 路径。nlohmann/json 是编辑器自己的序列化依赖，保留在 `.sdk/support`，不属于渲染扩展。
 
 ## nova-render 负责
 

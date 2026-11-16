@@ -119,11 +119,11 @@ pnpm dev:web
 渲染由 nova-render 0.2 的 native/Web 配对包提供；编辑器负责项目、交互、保存和资源版本。已替换多实例/原始空间、完整相机与视口、BVH 拾取、多材质槽、GPU 场景阴影、雾和环境清除，旧私有渲染补丁已退役。详细边界和验收见 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md)。
 
 ```sh
-pnpm sdk:install ../nova-v2/build/packages/0.2.0-9c133a2/manifest.json
+pnpm sdk:install https://github.com/Eric-Schecter/nova-render/releases/download/v0.2.0/manifest.json
 pnpm sdk:verify
 ```
 
-当前包已本地构建验证，尚未发布 GitHub Release。安装器校验包 SHA-256、平台/架构和配对来源；`.sdk/`、网页 `public/sdk/` 为可重建安装缓存。材质面板调用正式运行时 API，同时保留 GLB 版本、撤销和项目恢复。nlohmann/json 仍是编辑器自己的序列化依赖。
+当前包来自 [GitHub Release v0.2.0](https://github.com/Eric-Schecter/nova-render/releases/tag/v0.2.0)，可通过上方命令直接下载安装。安装器校验包 SHA-256、平台/架构和配对来源；`.sdk/`、网页 `public/sdk/` 为可重建安装缓存。材质面板调用正式运行时 API，同时保留 GLB 版本、撤销和项目恢复。nlohmann/json 仍是编辑器自己的序列化依赖。
 
 SDK 使用 UI 回调提交 ImGui 控件；不可在回调内重入 Renderer。应用把文件和渲染操作排队到 DrawFrame 之后执行。回调使用安装包中的相同 ImGui 版本。公共头变更影响 ABI，不能拿旧二进制搭配新头文件。
 
