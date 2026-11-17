@@ -9,6 +9,9 @@ int main(int argc, char** argv)
 {
     try
     {
+        auto alphaModel = editor::assets::decodeModel(
+          editor::assets::readBytes(std::filesystem::path(argv[1]) / "material-alpha/Layers.glb"));
+        require(alphaModel.parts.size() == 4, "Alpha model submeshes rejected");
         auto bytes = editor::assets::readBytes(std::filesystem::path(argv[1]) / "model-parts.glb");
         auto model = editor::assets::decodeModel(bytes);
         require(model.nodes.size() == 8 && model.parts.size() == 3, "Model structure mismatch");
@@ -90,7 +93,7 @@ int main(int argc, char** argv)
             if (test == 1)
                 bad.json["animations"] = editor::Json::array({editor::Json::object()});
             if (test == 2)
-                bad.json["materials"][0]["alphaMode"] = "BLEND";
+                bad.json["materials"][0]["alphaMode"] = "INVALID";
             if (test == 3)
                 bad.json["accessors"][0]["count"] = 4294967296ULL;
             if (test == 4)

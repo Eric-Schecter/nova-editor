@@ -200,8 +200,11 @@ export function decodeModel(bytes: Uint8Array): EditableModel {
           throw Error("仅支持未压缩的静态三角形子网格");
         const material =
           j.materials?.[p.material] ?? (p.material === undefined ? {} : null);
-        if (!material || (material.alphaMode ?? "OPAQUE") !== "OPAQUE")
-          throw Error("子网格需要不透明材质");
+        if (
+          !material ||
+          !["OPAQUE", "MASK", "BLEND"].includes(material.alphaMode ?? "OPAQUE")
+        )
+          throw Error("无效材质 Alpha 模式");
         const accessor = j.accessors?.[p.attributes?.POSITION],
           view = j.bufferViews?.[accessor?.bufferView];
         if (

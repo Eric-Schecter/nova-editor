@@ -106,6 +106,23 @@ namespace editor
                         for (int i = 0; i < 3; i++)
                             material[entry.first][i] = assets::srgbToLinear(rgb[i]);
                 }
+                const char* alphaModes[] = {"OPAQUE", "MASK", "BLEND"};
+                auto        alpha        = material["alphaMode"].get<std::string>();
+                int         alphaIndex   = alpha == "MASK" ? 1 : alpha == "BLEND" ? 2 : 0;
+                if (ImGui::Combo("Alpha mode", &alphaIndex, alphaModes, 3))
+                    material["alphaMode"] = alphaModes[alphaIndex];
+                for (const char* field : {"opacity", "alphaCutoff"})
+                {
+                    float value = material[field];
+                    if (ImGui::SliderFloat(field, &value, 0, 1, "%.2f"))
+                        material[field] = value;
+                }
+                bool sided = material["doubleSided"];
+                if (ImGui::Checkbox("Double sided", &sided))
+                    material["doubleSided"] = sided;
+                if (alphaIndex)
+                    ImGui::TextWrapped(
+                      "Raster only. MASK supports cutout shadows; BLEND uses weighted OIT and casts no shadow.");
                 for (const auto& entry :
                      {std::pair<const char*, const char*>{"metallic", "Metallic"},
                       {"roughness", "Roughness"},

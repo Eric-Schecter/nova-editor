@@ -164,8 +164,9 @@ namespace editor::assets
                         throw std::runtime_error("Only uncompressed static triangles supported");
                     auto material =
                       p.contains("material") ? j.at("materials").at(p["material"].get<size_t>()) : Json::object();
-                    if (material.value("alphaMode", "OPAQUE") != "OPAQUE")
-                        throw std::runtime_error("Opaque material required");
+                    if (auto mode = material.value("alphaMode", "OPAQUE");
+                        mode != "OPAQUE" && mode != "MASK" && mode != "BLEND")
+                        throw std::runtime_error("Invalid material alpha mode");
                     const auto& a = j.at("accessors").at(p.at("attributes").at("POSITION").get<size_t>());
                     const auto& v = j.at("bufferViews").at(a.at("bufferView").get<size_t>());
                     if (

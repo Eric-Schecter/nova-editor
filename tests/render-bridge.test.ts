@@ -54,6 +54,10 @@ test("editor camera/fog state maps to formal APIs and retains exact pole and ort
 test("material authoring applies the public runtime slots while leaving immutable project persistence to editor", async () => {
   const material = {
     name: "new",
+    opacity: 0.45,
+    alphaMode: "BLEND" as const,
+    alphaCutoff: 0.4,
+    doubleSided: true,
     color: [0.2, 0.3, 0.4],
     metallic: 0.8,
     roughness: 0.25,
@@ -84,7 +88,10 @@ test("material authoring applies the public runtime slots while leaving immutabl
   assert.equal(calls.length, 3);
   assert.equal(calls[1][0], 1);
   assert.equal(calls[0][2], "box");
-  assert.deepEqual(calls[0][1].baseColor, [0.2, 0.3, 0.4, 1]);
+  assert.deepEqual(calls[0][1].baseColor, [0.2, 0.3, 0.4, 0.45]);
+  assert.equal(calls[0][1].alphaMode, "BLEND");
+  assert.equal(calls[0][1].alphaCutoff, 0.4);
+  assert.equal(calls[0][1].doubleSided, true);
   assert.equal(calls[0][1].occlusionStrength, 0.7);
   assert.equal(calls[0][1].normalTexture, null);
   assert.equal(source[0].name, "left");

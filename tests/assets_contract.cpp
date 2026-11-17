@@ -54,11 +54,16 @@ int main(int argc, char** argv)
         material["color"]       = {.8, .1, .05};
         material["metallic"]    = .75;
         material["roughness"]   = .2;
+        material["opacity"]     = .45;
+        material["alphaMode"]   = "BLEND";
+        material["alphaCutoff"] = .4;
+        material["doubleSided"] = true;
         material["normalScale"] = 1.5;
         auto checker            = editor::assets::readBytes(root / "checker.png");
         auto next =
           editor::assets::applyTexture(editor::assets::applyTexture(doc, "baseColor", checker), "normal", checker);
         next                             = editor::assets::applyMaterial(next, material);
+        require(editor::assets::materialData(next) == material, "Alpha material round trip failed");
         auto g                           = editor::assets::defaultGeometry("sphere");
         g["parameters"]["radius"]        = 2;
         g["parameters"]["widthSegments"] = 24;

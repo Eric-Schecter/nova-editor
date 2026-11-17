@@ -415,6 +415,10 @@ export function makePrimitive(geometry: Geometry): Uint8Array {
 export type Material = {
   name: string;
   color: number[];
+  opacity: number;
+  alphaMode: "OPAQUE" | "MASK" | "BLEND";
+  alphaCutoff: number;
+  doubleSided: boolean;
   metallic: number;
   roughness: number;
   emissive: number[];
@@ -447,6 +451,10 @@ export function materialData(doc: GLB): Material {
   return {
     name: m.name ?? "Material",
     color: (p.baseColorFactor ?? [1, 1, 1, 1]).slice(0, 3),
+    opacity: p.baseColorFactor?.[3] ?? 1,
+    alphaMode: m.alphaMode ?? "OPAQUE",
+    alphaCutoff: m.alphaCutoff ?? 0.5,
+    doubleSided: m.doubleSided ?? false,
     metallic: p.metallicFactor ?? 1,
     roughness: p.roughnessFactor ?? 1,
     emissive: m.emissiveFactor ?? [0, 0, 0],
@@ -457,7 +465,11 @@ export function materialData(doc: GLB): Material {
 export function applyMaterial(doc: GLB, value: Material): GLB {
   if (
     typeof value.name !== "string" ||
+    !["OPAQUE", "MASK", "BLEND"].includes(value.alphaMode) ||
+    typeof value.doubleSided !== "boolean" ||
     ![
+      value.opacity,
+      value.alphaCutoff,
       value.metallic,
       value.roughness,
       value.occlusion,
@@ -475,7 +487,10 @@ export function applyMaterial(doc: GLB, value: Material): GLB {
   for (const m of materials(next)) {
     m.name = value.name;
     m.pbrMetallicRoughness ??= {};
-    m.pbrMetallicRoughness.baseColorFactor = [...value.color, 1];
+    m.pbrMetallicRoughness.baseColorFactor = [...value.color, value.opacity];
+    m.alphaMode = value.alphaMode;
+    m.alphaCutoff = value.alphaCutoff;
+    m.doubleSided = value.doubleSided;
     m.pbrMetallicRoughness.metallicFactor = value.metallic;
     m.pbrMetallicRoughness.roughnessFactor = value.roughness;
     m.emissiveFactor = [...value.emissive];

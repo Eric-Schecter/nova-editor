@@ -591,6 +591,13 @@ struct Editor
                                   value.baseColor[k] = material["color"][k];
                                   value.emissive[k]  = material["emissive"][k];
                               }
+                              value.baseColor[3] = material["opacity"];
+                              const auto alphaMode = material["alphaMode"].get<std::string>();
+                              value.alphaMode = alphaMode == "MASK"    ? render::AlphaMode::Mask
+                                                : alphaMode == "BLEND" ? render::AlphaMode::Blend
+                                                                       : render::AlphaMode::Opaque;
+                              value.alphaCutoff = material["alphaCutoff"];
+                              value.doubleSided = material["doubleSided"];
                               value.metallic                       = material["metallic"];
                               value.roughness                      = material["roughness"];
                               value.normalScale                    = material["normalScale"];

@@ -391,6 +391,10 @@ namespace editor::assets
         return {
           {"name", m.value("name", std::string("Material"))},
           {"color", {color[0], color[1], color[2]}},
+          {"opacity", color[3]},
+          {"alphaMode", m.value("alphaMode", std::string("OPAQUE"))},
+          {"alphaCutoff", m.value("alphaCutoff", .5)},
+          {"doubleSided", m.value("doubleSided", false)},
           {"metallic", p.value("metallicFactor", 1.)},
           {"roughness", p.value("roughnessFactor", 1.)},
           {"emissive", m.value("emissiveFactor", Json::array({0, 0, 0}))},
@@ -401,6 +405,9 @@ namespace editor::assets
     {
         if (!v.at("name").is_string())
             throw std::runtime_error("Invalid material name");
+        auto alphaMode = v.at("alphaMode").get<std::string>();
+        if ((alphaMode != "OPAQUE" && alphaMode != "MASK" && alphaMode != "BLEND") || !v.at("doubleSided").is_boolean())
+            throw std::runtime_error("Invalid alpha mode or sidedness");
         for (auto key : {"color", "emissive"})
         {
             if (!v.at(key).is_array() || v[key].size() != 3)
@@ -412,7 +419,7 @@ namespace editor::assets
                     throw std::runtime_error("Invalid material color");
             }
         }
-        for (auto key : {"metallic", "roughness", "normalScale", "occlusion"})
+        for (auto key : {"opacity", "alphaCutoff", "metallic", "roughness", "normalScale", "occlusion"})
         {
             double x = v.at(key).get<double>();
             if (!std::isfinite(x) || x < 0 || x > (std::string(key) == "normalScale" ? 4 : 1))
@@ -423,7 +430,10 @@ namespace editor::assets
             auto& m              = doc.json["materials"][id];
             m["name"]            = v["name"];
             auto& p              = m["pbrMetallicRoughness"];
-            p["baseColorFactor"] = {v["color"][0], v["color"][1], v["color"][2], 1};
+            p["baseColorFactor"] = {v["color"][0], v["color"][1], v["color"][2], v["opacity"]};
+            m["alphaMode"]       = v["alphaMode"];
+            m["alphaCutoff"]     = v["alphaCutoff"];
+            m["doubleSided"]     = v["doubleSided"];
             p["metallicFactor"]  = v["metallic"];
             p["roughnessFactor"] = v["roughness"];
             m["emissiveFactor"]  = v["emissive"];

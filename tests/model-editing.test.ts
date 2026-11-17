@@ -158,7 +158,7 @@ test("unsupported or malformed model structures reject before publishing a parti
       (j.nodes[1].matrix = [1, 0, 0, 0, 0.5, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
     (j: any) => (j.animations = [{}]),
     (j: any) => (j.meshes[0].primitives[0].targets = [{}]),
-    (j: any) => (j.materials[0].alphaMode = "BLEND"),
+    (j: any) => (j.materials[0].alphaMode = "INVALID"),
     (j: any) => (j.images[0].uri = "external.png"),
     (j: any) => (j.accessors[0].count = 2 ** 32),
   ]) {

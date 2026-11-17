@@ -104,7 +104,12 @@ export function AssetProperties({
   const factor = (
     key: keyof Pick<
       Material,
-      "metallic" | "roughness" | "normalScale" | "occlusion"
+      | "opacity"
+      | "alphaCutoff"
+      | "metallic"
+      | "roughness"
+      | "normalScale"
+      | "occlusion"
     >,
     label: string,
     max = 1,
@@ -271,6 +276,43 @@ export function AssetProperties({
                   onValue={(value) => updateMaterial("color", value)}
                 />
               </label>
+              <label className="asset-property-field">
+                Alpha 模式
+                <select
+                  aria-label="材质 Alpha 模式"
+                  value={material.alphaMode}
+                  onChange={(e) =>
+                    updateMaterial(
+                      "alphaMode",
+                      e.target.value as Material["alphaMode"],
+                    )
+                  }
+                >
+                  <option value="OPAQUE">不透明</option>
+                  <option value="MASK">Alpha 裁剪</option>
+                  <option value="BLEND">透明混合</option>
+                </select>
+              </label>
+              {factor("opacity", "不透明度")}
+              {material.alphaMode === "MASK" &&
+                factor("alphaCutoff", "Alpha 裁剪阈值")}
+              <label className="asset-property-field">
+                <input
+                  type="checkbox"
+                  aria-label="材质双面"
+                  checked={material.doubleSided}
+                  onChange={(e) =>
+                    updateMaterial("doubleSided", e.target.checked)
+                  }
+                />
+                双面
+              </label>
+              {material.alphaMode !== "OPAQUE" && (
+                <p className="hint">
+                  Alpha 材质使用光栅模式；透明混合采用加权
+                  OIT，不投射阴影。Alpha 裁剪支持镂空阴影。
+                </p>
+              )}
               {factor("metallic", "金属度")}
               {factor("roughness", "粗糙度")}
               <label className="asset-property-field">
