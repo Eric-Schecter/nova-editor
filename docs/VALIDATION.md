@@ -233,3 +233,37 @@ MTL_DEBUG_LAYER=1 ./build/editor_layout_render_test resources/viewport tests/fix
 - 重新加载页面后，通过本次恢复副本确认贴图与所有参数恢复。实际“下载项目包”所得 ZIP 含6个模型及约20MiB环境资源，解包到 `output/world-web-export/`，桌面打开并运行120帧，validation errors 为0；CLI再次pack/unpack也保留贴图。
 - 本次实机验证 macOS Metal 与 Chrome WebGPU；Windows/Linux未实机验证。环境文件选择器未通过浏览器自动上传验证；预设通过真实相同字节导入路径验证。HDR/EXR直接导入不支持，使用Nova离线烘焙 `.nenv`。SDK基于 f016292 dirty 快照，后续上游提交未混入，见 SDK-ATMOSPHERE.md。
 - 最终额外启用 `MTL_DEBUG_LAYER=1`：环境回归90帧与原有多实例120帧（TRS、增删/清空、模型接口切换、正交与极点相机）均通过，Metal API Validation错误为0。CLI环境资源再次往返的内容逐字节一致。
+
+## 2026-11-16 Release 下载、版本锁定与更新
+
+- 实际从 GitHub Release v0.2.0 下载 manifest、macOS ARM64 Release SDK 与 Web tgz；校验 Release 附件摘要、配对清单、包内版本/干净提交和 shader 摘要。新锁格式3记录 Release/附件 ID、URL、SHA-256、源码9c133a2、203项安装文件；不再将编辑器 JSON 头文件混入 SDK 锁。
+- `sdk:install` 无参数严格恢复锁；`sdk:update <精确版本>` 显式升级，`--check` 不写文件。真实检查当前与最新兼容版本均为0.2.0，检查前后锁文件哈希不变。兼容策略为稳定0.2.x，无 latest 自动升级。
+- 实际完成默认恢复、`sdk:install --offline`、仅含锁与缓存的全新目录离线恢复；锁文件逐字节不变，恢复目录不需要 `.sdk/support`。编辑器 nlohmann/json 3.12.0 与 MIT 许可已随仓库保存，原生构建使用该副本。
+- 真实网络遇到 Node 超时、附件断流和公共 API 请求拒绝，失败未替换已安装 SDK；已增加同一官方地址的 curl 断点续传、完整哈希验证，以及已有 gh 会话/CI token 的元数据认证。最终官方包下载与事务安装成功。未校验的 partial 不用于离线安装。
+- 11项依赖管理测试覆盖真实压缩包解包/安装、模拟0.2.0→0.2.1同步更新、旧锁迁移、缓存损坏、离线缺失、不同源码/模块/版本拒绝、路径与符号链接拒绝、并发保护、中途失败/首次失败回滚、进程中断恢复、CLI全新目录恢复和断流续传。与58项原有业务测试合计69项通过；8项CTest、网页生产构建和原生Release构建通过。
+- CMake配置使用版本/提交配对检查，实际以伪造的0.2.99原生元数据确认配置在链接前拒绝混用；网页启动/构建使用完整203项哈希检查。构建不应与安装并行。
+- 本次未修改渲染算法或UI；下载的0.2.0二进制与此前已验证的配对包内容一致。当前上游Release原生只提供macOS ARM64，未声称支持不存在的Windows/Linux 0.2附件。
+
+## 2026-11-16 相机 FOV、裁剪与滚转
+
+- 双端相机属性接入垂直FOV、近/远裁剪、局部roll；正式SDK保持0.2.0/9c133a2、203项校验，不修改渲染依赖。新镜头字段一起保存为schema v5；滚转沿用节点四元数。旧v1–v4保持45°与0.01–200默认值，其他编辑/环境命令不降级v5。
+- 投影、射线、gizmo屏幕尺寸、平移、视图立方体和SDK桥接使用相同镜头/姿态；正交高度独立于FOV。共享fixture覆盖非等比缩放父级、组合旋转、roll与精确极点。捕获镜头分别逆变换位置/朝向，不再因为相机父缩放错误地产生剪切。
+- 72项共享/依赖管理测试、9项CTest及双端构建通过。90帧Metal镜头回归切换FOV30/95、近裁剪0.2/20、远裁剪1000、roll -45至44、透视/正交，读回及API Validation通过；720帧真实编辑器回归含滚转主相机、切主相机和返回编辑视角，校验错误0。
+- Chrome真实操作灯光相机示例：主相机FOV70、near0.5/far80、roll20，预览可见画面旋转；far4和near12分别实际裁切模型，恢复0.5/80后画面恢复；正交高度12与透视切换均保留roll与裁剪。截图`output/camera-lens-web.jpg`。
+- 实际下载`nova-project (4).zip`确认schema5与完整镜头参数，解包到`output/camera-web-export`，桌面打开120帧且验证错误0。浏览器刷新后恢复本次副本，界面读回FOV70、near0.5、far80、roll20。桌面窗口图像正常；原生鼠标自动化未能注入点击（noWindowsAvailable），不把该点击计为成功，桌面回调与预览由上述合同/工作流/GPU回归验证。
+- 已说明桌面SDK隐藏路径`.sdk/native`（当前约36MiB），头文件/include、静态库/lib、CMake配置/lib/cmake/Nova；Finder可用Cmd+Shift+.显示。Windows/Linux原生未实机验证；本次实机范围为macOS Metal与Chrome WebGPU。
+
+## 2026-11-16 可见依赖目录迁移
+
+- 正式依赖迁至 `deps/nova/native/`、`deps/nova/web/` 和 `deps/nova/package/`，锁格式 v4 记录规范路径；版本仍为 0.2.0、源码仍为 9c133a2，附件哈希与 203 项正式文件内容不变。下载缓存和事务迁至 `.cache/nova/`。本机旧 `.sdk/` 整体保存在 `.cache/nova/legacy-sdk-backup/`，活动路径不再依赖它。
+- 实际完成旧缓存离线迁移、移走旧目录后的离线与默认锁定恢复。网页部署副本从正式 Web 包同步，缺失/损坏时原子修复；损坏正式依赖拒绝同步。14项依赖测试包含旧日志恢复、旧锁/缓存迁移和部署副本重建，与业务测试合计75项通过；9项CTest通过。
+- 现有 CMake 缓存自动迁到新目录；新建 `build-deps-check/` 从默认路径配置并完成 Release 构建。Metal API Validation 下打开含镜头参数的项目，实际渲染120帧，validation errors 为0。
+- 网页生产构建通过，Chrome打开独立生产预览端口5234，实际加载灯光与相机示例：6个模型、10个节点，WebGPU画面正常，控制台无warning/error。截图 `output/deps-nova-web.jpg`。实机验证范围为macOS ARM64 Metal与Chrome WebGPU。
+
+## 2026-11-17：正式 0.3.0 多灯接入
+
+- 从 GitHub Release 下载安装 0.3.0，同一干净源提交 `087562d8b1cf652c821746b2d5c33d8f6db59f85`；保留 SDK 安装清单，未改包内源码或着色器。
+- 77 项 JS 测试、10 项原生 CTest，覆盖六灯独立启用、父子变换、未缩放范围、聚光局部 -Z、锥体辅助线、错误输入、历史、归档、保存和恢复。
+- Chrome WebGPU 实际创建方向光、点光、聚光，逐灯开关改变画面，点光/聚光阴影选项禁用，编辑后撤销与 ZIP 保存重开通过。截图 `output/lights-browser/editor.png`。
+- Metal 原生构建成功，并打开网页保存的同一三灯项目，在验证层开启时完成 120 帧原生 UI 集成测试（点光开关、撤销、聚光锥角修改），GPU 错误为 0；渲染实现的六灯逐盏/同时贡献由 nova-render 共享 HLSL 像素测试验证。
+- 场景 v6 允许最多 16 盏独立灯；旧格式原 inactive 灯保持关闭。点光/聚光阴影明确不支持；Vulkan/DX12/光追仍使用旧单方向光，编辑器本轮面向 Metal/WebGPU 光栅。

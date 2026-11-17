@@ -15,7 +15,7 @@ import {
   hasTexture,
   type PrimitiveType,
 } from "../packages/asset-system/index";
-import { loadGLB } from "../apps/web/public/sdk/src/ModelData.js";
+import { loadGLB } from "../deps/nova/web/src/ModelData.js";
 import { emptyScene, identity } from "../packages/scene-schema/index";
 import {
   packProject,

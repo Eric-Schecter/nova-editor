@@ -5,9 +5,15 @@ export type CameraComponent = {
   orthographicSize: number;
   exposure: number;
   primary: boolean;
+  verticalFov?: number;
+  nearPlane?: number;
+  farPlane?: number;
 };
 export type LightComponent = {
-  type: "directional";
+  type: "directional" | "point" | "spot";
+  range?: number;
+  innerConeAngle?: number;
+  outerConeAngle?: number;
   color: number[];
   intensity: number;
   shadows: boolean;
@@ -31,7 +37,7 @@ export type SceneNode = {
   locked?: boolean;
 };
 export type Scene = {
-  schemaVersion: 1 | 2 | 3 | 4;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
   world?: WorldSettings;
   name: string;
   nodes: SceneNode[];
@@ -56,14 +62,14 @@ const record = (x: unknown): x is Record<string, unknown> =>
 export function validateScene(value: unknown): Scene {
   if (
     !record(value) ||
-    ![1, 2, 3, 4].includes(value.schemaVersion as number) ||
+    ![1, 2, 3, 4, 5, 6].includes(value.schemaVersion as number) ||
     typeof value.name !== "string" ||
     !Array.isArray(value.nodes) ||
     !record(value.assets)
   )
     throw Error("Unsupported or malformed scene document");
   if (value.world !== undefined) {
-    if (value.schemaVersion !== 4)
+    if ((value.schemaVersion as number) < 4)
       throw Error("World settings require scene format 4");
     validateWorld(value.world);
   }
@@ -142,12 +148,28 @@ export function validateScene(value: unknown): Scene {
         typeof c.primary !== "boolean"
       )
         throw Error("Invalid camera component");
+      const lens = [c.verticalFov, c.nearPlane, c.farPlane];
+      if (
+        lens.some((v) => v !== undefined) &&
+        ((value.schemaVersion as number) < 5 ||
+          !range(c.verticalFov, 1, 179) ||
+          !range(c.nearPlane, 0.0001, 1e6) ||
+          !range(c.farPlane, 0.0002, 1e7) ||
+          (c.farPlane as number) <= (c.nearPlane as number))
+      )
+        throw Error("Invalid camera lens or scene format (requires v5)");
     }
     if (node.light !== undefined) {
+      if (new TextEncoder().encode(node.id).length > 128)
+        throw Error("Light ID exceeds 128 UTF-8 bytes");
       const l = node.light;
       if (
         !record(l) ||
-        l.type !== "directional" ||
+        !(
+          (value.schemaVersion as number) >= 6
+            ? ["directional", "point", "spot"]
+            : ["directional"]
+        ).includes(l.type as string) ||
         !Array.isArray(l.color) ||
         l.color.length !== 3 ||
         !l.color.every((v) => range(v, 0, 1)) ||
@@ -157,16 +179,32 @@ export function validateScene(value: unknown): Scene {
         typeof l.active !== "boolean"
       )
         throw Error("Invalid light component");
+      if (
+        l.type !== "directional" &&
+        (!range(l.range, 0, 1e7) || l.shadows !== false)
+      )
+        throw Error("Invalid range or unsupported point/spot shadows");
+      if (
+        l.type === "spot" &&
+        (!range(l.innerConeAngle, 0, Math.PI / 2) ||
+          !range(l.outerConeAngle, 0, Math.PI / 2) ||
+          (l.innerConeAngle as number) > (l.outerConeAngle as number) ||
+          (l.outerConeAngle as number) >= Math.PI / 2)
+      )
+        throw Error("Invalid spot cone angles");
     }
     ids.set(node.id, node as SceneNode);
   }
   if (
     [...ids.values()].filter((n) => n.camera?.primary).length > 1 ||
-    [...ids.values()].filter((n) => n.light?.active).length > 1
+    ((value.schemaVersion as number) < 6 &&
+      [...ids.values()].filter((n) => n.light?.active).length > 1)
   )
     throw Error(
       "Only one primary camera / active directional light is supported",
     );
+  if ([...ids.values()].filter((n) => n.light).length > 16)
+    throw Error("Maximum 16 scene lights");
   for (const node of ids.values()) {
     const visited = new Set<string>([node.id]);
     let parent = node.parentId;

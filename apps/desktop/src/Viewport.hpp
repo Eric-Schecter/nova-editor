@@ -90,12 +90,7 @@ namespace editor
                 | ImGuiWindowFlags_NoBringToFrontOnFocus);
             auto&  io     = ImGui::GetIO();
             auto   camera = window.GetCamera();
-            Camera c{
-              camera.yaw,
-              camera.pitch,
-              camera.distance,
-              camera.orthographic,
-              {camera.target[0], camera.target[1], camera.target[2]}};
+            Camera c      = navigationCamera(camera);
             drawViewCube(
               c,
               {pos.x, pos.y + 38},
@@ -299,14 +294,9 @@ namespace editor
                     next.pitch = std::clamp(float(orbitCamera.pitch + (mouse.y - orbitStart.y) * .35), -90.f, 90.f);
                     if (pan)
                     {
-                        Camera base{
-                          orbitCamera.yaw,
-                          orbitCamera.pitch,
-                          orbitCamera.distance,
-                          orbitCamera.orthographic,
-                          {orbitCamera.target[0], orbitCamera.target[1], orbitCamera.target[2]}};
-                        auto p = panCamera(base, mouse.x - orbitStart.x, mouse.y - orbitStart.y, full);
-                        next   = orbitCamera;
+                        Camera base = navigationCamera(orbitCamera);
+                        auto   p    = panCamera(base, mouse.x - orbitStart.x, mouse.y - orbitStart.y, full);
+                        next        = orbitCamera;
                         for (int k = 0; k < 3; k++)
                             next.target[k] = float(p.target[k]);
                     }

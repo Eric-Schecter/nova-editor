@@ -275,8 +275,8 @@ int main(int argc, char** argv)
                         if (n["id"] == cameraFront)
                             n["transform"]["rotation"] = editor::eulerQuaternion({0, 0, 30});
                 });
-            if (frames == 690 && e.mainPreview)
-                throw std::runtime_error("Unsupported roll was silently rendered");
+            if (frames == 690 && (!e.mainPreview || std::abs(window.GetCamera().roll - 30) > 1e-3))
+                throw std::runtime_error("Scene camera roll was not rendered");
             if (frames == 700)
             {
                 e.change([&](auto& s) { editor::captureCamera(s, cameraFront, e.editorCamera); });
@@ -293,10 +293,11 @@ int main(int argc, char** argv)
         if (frames != 720 || window.ValidationErrorCount())
             throw std::runtime_error("Layout rendering did not finish cleanly");
         std::filesystem::remove_all(root);
-        std::cout << "720 Metal frames: saved light/camera nodes, main switching, orthographic preview, editor return, "
-                     "roll rejection; group local/world TRS, numeric fields, undo/redo, orthographic view; internal "
-                     "nodes, independent material slots, submesh picking, PBR/embedded textures, "
-                     "viewport resize; validation errors: 0\n";
+        std::cout
+          << "720 Metal frames: saved light/camera nodes, main switching, orthographic preview, editor return, "
+             "rolled camera preview; group local/world TRS, numeric fields, undo/redo, orthographic view; internal "
+             "nodes, independent material slots, submesh picking, PBR/embedded textures, "
+             "viewport resize; validation errors: 0\n";
         return 0;
     }
     catch (const std::exception& error)

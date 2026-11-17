@@ -1,4 +1,5 @@
 #pragma once
+#include "Gizmo.hpp"
 #include <cmath>
 #include <render/Window.hpp>
 namespace editor
@@ -9,22 +10,33 @@ namespace editor
         float                yaw = 0, pitch = 0, distance = 3.6f, exposure = 1;
         std::array<float, 3> target{0, 0, 0};
         bool                 orthographic = false;
+        float                roll = 0, verticalFov = 45, nearPlane = .01f, farPlane = 200;
     };
+    inline Camera navigationCamera(const OrbitCamera& c)
+    {
+        return {
+          c.yaw,
+          c.pitch,
+          c.distance,
+          c.orthographic,
+          {c.target[0], c.target[1], c.target[2]},
+          c.roll,
+          c.verticalFov,
+          c.nearPlane,
+          c.farPlane};
+    }
     inline render::Camera renderCamera(const OrbitCamera& c)
     {
-        const double   radians = 3.141592653589793 / 180, y = c.yaw * radians, p = c.pitch * radians;
+        auto           f = cameraFrame(navigationCamera(c));
         render::Camera view;
-        view.position = {
-          float(c.target[0] + c.distance * std::cos(p) * std::sin(y)),
-          float(c.target[1] + c.distance * std::sin(p)),
-          float(c.target[2] + c.distance * std::cos(p) * std::cos(y))};
-        view.orientation = {
-          float(-std::cos(y / 2) * std::sin(p / 2)),
-          float(std::sin(y / 2) * std::cos(p / 2)),
-          float(std::sin(y / 2) * std::sin(p / 2)),
-          float(std::cos(y / 2) * std::cos(p / 2))};
+        for (int k = 0; k < 3; k++)
+            view.position[k] = float(f.eye[k]);
+        view.orientation        = cameraOrientation(c.yaw, c.pitch, c.roll);
         view.projection         = c.orthographic ? render::Projection::Orthographic : render::Projection::Perspective;
-        view.orthographicHeight = 2 * c.distance * float(std::tan(3.141592653589793 / 8));
+        view.orthographicHeight = float(2 * c.distance * cameraTangent(navigationCamera(c)));
+        view.verticalFov        = c.verticalFov;
+        view.nearPlane          = c.nearPlane;
+        view.farPlane           = c.farPlane;
         view.exposure           = c.exposure;
         return view;
     }

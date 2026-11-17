@@ -1,27 +1,20 @@
+import {
+  cameraFrame,
+  cameraOrientation,
+  cameraTangent,
+} from "../editor-core/src/viewport";
 import type { Camera } from "../editor-core/src/viewport";
 import type { Material, TextureSlot } from "../asset-system/index";
 // Translate editor navigation/project fields into public Nova APIs; no rendering implementation lives here.
 export function renderCamera(camera: Camera) {
-  const y = (camera.yaw * Math.PI) / 180,
-    p = (camera.pitch * Math.PI) / 180,
-    t = camera.target ?? [0, 0, 0];
   return {
-    position: [
-      t[0] + camera.distance * Math.cos(p) * Math.sin(y),
-      t[1] + camera.distance * Math.sin(p),
-      t[2] + camera.distance * Math.cos(p) * Math.cos(y),
-    ],
-    orientation: [
-      -Math.cos(y / 2) * Math.sin(p / 2),
-      Math.sin(y / 2) * Math.cos(p / 2),
-      Math.sin(y / 2) * Math.sin(p / 2),
-      Math.cos(y / 2) * Math.cos(p / 2),
-    ],
+    position: cameraFrame(camera).eye,
+    orientation: cameraOrientation(camera),
     projection: camera.orthographic ? "orthographic" : "perspective",
-    orthographicHeight: 2 * camera.distance * Math.tan(Math.PI / 8),
-    verticalFov: 45,
-    nearPlane: 0.01,
-    farPlane: 200,
+    orthographicHeight: 2 * camera.distance * cameraTangent(camera),
+    verticalFov: camera.verticalFov ?? 45,
+    nearPlane: camera.nearPlane ?? 0.01,
+    farPlane: camera.farPlane ?? 200,
     exposure: camera.exposure,
   };
 }

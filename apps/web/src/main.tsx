@@ -18,8 +18,10 @@ import {
   primaryCamera,
   sceneCamera,
   sceneDirectional,
+  sceneLights,
   captureCamera,
   aimObject,
+  applyCameraLens,
 } from "../../../packages/editor-core/src/scene-objects";
 import { GroupTransform } from "./GroupTransform";
 import {
@@ -79,6 +81,7 @@ import {
   emptyScene,
   validateScene,
   type SceneNode,
+  type Scene,
   type Transform,
 } from "../../../packages/scene-schema/index";
 import {
@@ -121,6 +124,14 @@ type Renderer = {
   enableOrbitControls: () => void;
   dispose: () => void;
   setClearColor: (c: number[]) => void;
+  setLights: (lights: ReturnType<typeof sceneLights>) => void;
+  getLightingCapabilities: () => {
+    maxLights: number;
+    directionalShadows: boolean;
+    pointShadows: boolean;
+    spotShadows: boolean;
+    reason: string;
+  };
   setLighting: (mode: "pbr" | "unlit") => void;
   setShadows: (settings: { enabled: boolean; softness: number }) => void;
   setDirectionalLight: (light: {
@@ -307,7 +318,7 @@ function App() {
       previewCamera = sceneCamera(scene);
     } catch {}
   const viewCamera = previewCamera ?? camera,
-    activeSceneLight = sceneDirectional(scene);
+    activeSceneLight = scene.nodes.find((n) => n.light);
   const refresh = () => render((n) => n + 1);
   const changeCamera = (value: Camera) => {
     if (mainPreview) return;
@@ -322,12 +333,25 @@ function App() {
     }
   };
   function changeLight(value: LightingSettings) {
-    if (sceneDirectional(history.scene)) return;
+    if (history.scene.nodes.some((n) => n.light)) return;
     try {
-      renderer.current?.setDirectionalLight(rendererLight(value));
+      renderer.current?.setLights([
+        {
+          id: "__studio",
+          type: "directional",
+          enabled: true,
+          ...rendererLight(value),
+          position: [0, 0, 0],
+          range: 0,
+          innerConeAngle: 0.35,
+          outerConeAngle: 0.6,
+          castShadow: value.shadows,
+          shadowSoftness: value.softness,
+        },
+      ]);
       renderer.current?.setShadows({
-        enabled: value.shadows,
-        softness: value.softness,
+        enabled: true,
+        softness: 1,
       });
       setLight(value);
       if (renderer.current)
@@ -628,15 +652,26 @@ function App() {
             ),
             1,
           ]);
-          const sceneLight = sceneDirectional(snapshot);
-          renderer.current.setDirectionalLight(
-            sceneLight ?? rendererLight(light),
+          const lamps = sceneLights(snapshot);
+          renderer.current.setLights(
+            snapshot.nodes.some((n) => n.light)
+              ? lamps
+              : [
+                  {
+                    id: "__studio",
+                    type: "directional",
+                    enabled: true,
+                    ...rendererLight(light),
+                    position: [0, 0, 0],
+                    range: 0,
+                    innerConeAngle: 0.35,
+                    outerConeAngle: 0.6,
+                    castShadow: light.shadows,
+                    shadowSoftness: light.softness,
+                  },
+                ],
           );
-          renderer.current.setShadows(
-            sceneLight
-              ? { enabled: sceneLight.shadows, softness: sceneLight.softness }
-              : { enabled: light.shadows, softness: light.softness },
-          );
+          renderer.current.setShadows({ enabled: true, softness: 1 });
           if (mainPreview) {
             try {
               const view = sceneCamera(snapshot);
@@ -694,7 +729,7 @@ function App() {
   function applyWorld(world: WorldSettings) {
     const valid = validateWorld(world);
     history.commit((s) => {
-      s.schemaVersion = 4;
+      s.schemaVersion = Math.max(4, s.schemaVersion) as Scene["schemaVersion"];
       s.world = valid;
     });
     refresh();
@@ -1025,18 +1060,23 @@ function App() {
     if (!node && (inspectorTab === "geometry" || inspectorTab === "material"))
       setInspectorTab("object");
   }, [node?.id, inspectorTab]);
-  function addSceneObject(kind: "camera" | "light") {
+  function addSceneObject(
+    kind: "camera" | "light",
+    lightType: "directional" | "point" | "spot" = "directional",
+  ) {
     if (busy) return;
     const id = crypto.randomUUID(),
-      n = kind === "camera" ? createCamera(id, viewCamera) : createLight(id);
+      n =
+        kind === "camera"
+          ? createCamera(id, viewCamera)
+          : createLight(id, lightType);
     edit((s) => {
-      s.schemaVersion = Math.max(s.schemaVersion, 3) as 3 | 4;
+      s.schemaVersion = Math.max(
+        s.schemaVersion,
+        kind === "light" ? 6 : 5,
+      ) as Scene["schemaVersion"];
       s.nodes.push(n);
-      if (
-        !s.nodes.some((x) =>
-          kind === "camera" ? x.camera?.primary : x.light?.active,
-        )
-      )
+      if (kind === "light" || !s.nodes.some((x) => x.camera?.primary))
         setPrimary(s, id, kind);
     });
     select(id);
@@ -1399,6 +1439,16 @@ function App() {
               {
                 label: "方向光",
                 action: () => addSceneObject("light"),
+                disabled: busy,
+              },
+              {
+                label: "点光",
+                action: () => addSceneObject("light", "point"),
+                disabled: busy,
+              },
+              {
+                label: "聚光",
+                action: () => addSceneObject("light", "spot"),
                 disabled: busy,
               },
               {
@@ -1798,7 +1848,7 @@ function App() {
                 <>
                   <p className="compact-status">
                     {activeSceneLight
-                      ? "当前使用场景光源；请选择方向光节点编辑。"
+                      ? "当前使用场景灯光；选择灯光节点可独立编辑和启用。"
                       : "摄影棚光照仅用于当前视口。"}
                   </p>
                   <LightingPanel
@@ -1919,7 +1969,11 @@ function App() {
                           {node.camera
                             ? "相机"
                             : node.light
-                              ? "方向光"
+                              ? {
+                                  directional: "方向光",
+                                  point: "点光",
+                                  spot: "聚光",
+                                }[node.light.type]
                               : node.assetId
                                 ? "模型实例"
                                 : "空节点"}
@@ -1971,18 +2025,22 @@ function App() {
                         }
                         viewing={mainPreview}
                         notice={cameraNotice}
-                        onApply={(component, yaw, pitch) =>
+                        onApply={(component, yaw, pitch, roll) =>
                           edit((s) => {
-                            aimObject(s, node.id, yaw, pitch);
+                            aimObject(s, node.id, yaw, pitch, roll);
                             const n = s.nodes.find((n) => n.id === node.id)!;
                             if (n.camera) {
-                              n.camera = component as NonNullable<
-                                SceneNode["camera"]
-                              >;
-                            } else
+                              applyCameraLens(
+                                s,
+                                node.id,
+                                component as NonNullable<SceneNode["camera"]>,
+                              );
+                            } else {
                               n.light = component as NonNullable<
                                 SceneNode["light"]
                               >;
+                              s.schemaVersion = 6;
+                            }
                           })
                         }
                         onPrimary={(enabled) =>

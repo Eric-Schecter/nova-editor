@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 6,
+  "name": "Six lights",
+  "assets": {},
+  "nodes": [
+    {
+      "id": "parent",
+      "parentId": null,
+      "name": "parent",
+      "transform": {
+        "position": [
+          4,
+          1,
+          2
+        ],
+        "rotation": [
+          0,
+          0.7071067811865476,
+          0,
+          0.7071067811865476
+        ],
+        "scale": [
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "id": "directional0",
+      "parentId": "parent",
+      "name": "directional0",
+      "transform": {
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "light": {
+        "type": "directional",
+        "color": [
+          1,
+          0.7,
+          0.4
+        ],
+        "intensity": 4,
+        "active": true,
+        "shadows": true,
+        "softness": 1,
+        "range": 10,
+        "innerConeAngle": 0.35,
+        "outerConeAngle": 0.6
+      }
+    },
+    {
+      "id": "directional1",
+      "parentId": "parent",
+      "name": "directional1",
+      "transform": {
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "light": {
+        "type": "directional",
+        "color": [
+          1,
+          0.7,
+          0.4
+        ],
+        "intensity": 4,
+        "active": true,
+        "shadows": true,
+        "softness": 1,
+        "range": 10,
+        "innerConeAngle": 0.35,
+        "outerConeAngle": 0.6
+      }
+    },
+    {
+      "id": "point2",
+      "parentId": "parent",
+      "name": "point2",
+      "transform": {
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "light": {
+        "type": "point",
+        "color": [
+          1,
+          0.7,
+          0.4
+        ],
+        "intensity": 4,
+        "active": true,
+        "shadows": false,
+        "softness": 1,
+        "range": 10,
+        "innerConeAngle": 0.35,
+        "outerConeAngle": 0.6
+      }
+    },
+    {
+      "id": "point3",
+      "parentId": "parent",
+      "name": "point3",
+      "transform": {
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "light": {
+        "type": "point",
+        "color": [
+          1,
+          0.7,
+          0.4
+        ],
+        "intensity": 4,
+        "active": true,
+        "shadows": false,
+        "softness": 1,
+        "range": 10,
+        "innerConeAngle": 0.35,
+        "outerConeAngle": 0.6
+      }
+    },
+    {
+      "id": "spot4",
+      "parentId": "parent",
+      "name": "spot4",
+      "transform": {
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "light": {
+        "type": "spot",
+        "color": [
+          1,
+          0.7,
+          0.4
+        ],
+        "intensity": 4,
+        "active": true,
+        "shadows": false,
+        "softness": 1,
+        "range": 10,
+        "innerConeAngle": 0.35,
+        "outerConeAngle": 0.6
+      }
+    },
+    {
+      "id": "spot5",
+      "parentId": "parent",
+      "name": "spot5",
+      "transform": {
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "light": {
+        "type": "spot",
+        "color": [
+          1,
+          0.7,
+          0.4
+        ],
+        "intensity": 4,
+        "active": true,
+        "shadows": false,
+        "softness": 1,
+        "range": 10,
+        "innerConeAngle": 0.35,
+        "outerConeAngle": 0.6
+      }
+    }
+  ]
+}

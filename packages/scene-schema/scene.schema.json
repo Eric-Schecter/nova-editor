@@ -1,23 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:nova-editor:scene:4",
-  "title": "Nova Editor scene v4 (legacy v1-v3 accepted)",
-  "description": "Tree cycles, asset references, finite numbers, unit quaternions and unique primary camera / active directional light are checked by both semantic validators.",
+  "$id": "urn:nova-editor:scene:6",
+  "title": "Nova Editor scene v6 (legacy v1-v5 accepted)",
+  "description": "Semantic validators enforce finite transforms, references, one primary camera, up to 16 independent lights, and legacy light exclusivity before v6.",
   "type": "object",
-  "required": [
-    "schemaVersion",
-    "name",
-    "nodes",
-    "assets"
-  ],
+  "required": ["schemaVersion", "name", "nodes", "assets"],
   "properties": {
     "schemaVersion": {
-      "enum": [
-        1,
-        2,
-        3,
-        4
-      ]
+      "enum": [1, 2, 3, 4, 5, 6]
     },
     "name": {
       "type": "string"
@@ -29,9 +19,7 @@
       },
       "additionalProperties": {
         "type": "object",
-        "required": [
-          "path"
-        ],
+        "required": ["path"],
         "properties": {
           "sourceSpace": {
             "type": "boolean"
@@ -54,11 +42,7 @@
     },
     "world": {
       "type": "object",
-      "required": [
-        "environment",
-        "background",
-        "fog"
-      ],
+      "required": ["environment", "background", "fog"],
       "properties": {
         "environment": {
           "type": "object",
@@ -71,10 +55,7 @@
           ],
           "properties": {
             "map": {
-              "type": [
-                "string",
-                "null"
-              ],
+              "type": ["string", "null"],
               "pattern": "^assets/.+\\.nenv$"
             },
             "name": {
@@ -99,16 +80,10 @@
         },
         "background": {
           "type": "object",
-          "required": [
-            "mode",
-            "color"
-          ],
+          "required": ["mode", "color"],
           "properties": {
             "mode": {
-              "enum": [
-                "color",
-                "environment"
-              ]
+              "enum": ["color", "environment"]
             },
             "color": {
               "type": "string",
@@ -118,20 +93,10 @@
         },
         "fog": {
           "type": "object",
-          "required": [
-            "mode",
-            "color",
-            "near",
-            "far",
-            "density"
-          ],
+          "required": ["mode", "color", "near", "far", "density"],
           "properties": {
             "mode": {
-              "enum": [
-                "none",
-                "linear",
-                "exp2"
-              ]
+              "enum": ["none", "linear", "exp2"]
             },
             "color": {
               "type": "string",
@@ -176,22 +141,14 @@
     },
     "node": {
       "type": "object",
-      "required": [
-        "id",
-        "parentId",
-        "name",
-        "transform"
-      ],
+      "required": ["id", "parentId", "name", "transform"],
       "properties": {
         "id": {
           "type": "string",
           "minLength": 1
         },
         "parentId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "name": {
           "type": "string"
@@ -201,11 +158,7 @@
         },
         "transform": {
           "type": "object",
-          "required": [
-            "position",
-            "rotation",
-            "scale"
-          ],
+          "required": ["position", "rotation", "scale"],
           "properties": {
             "position": {
               "$ref": "#/$defs/vector3"
@@ -237,10 +190,7 @@
           ],
           "properties": {
             "projection": {
-              "enum": [
-                "perspective",
-                "orthographic"
-              ]
+              "enum": ["perspective", "orthographic"]
             },
             "focusDistance": {
               "type": "number",
@@ -259,7 +209,27 @@
             },
             "primary": {
               "type": "boolean"
+            },
+            "verticalFov": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 179
+            },
+            "nearPlane": {
+              "type": "number",
+              "minimum": 0.0001,
+              "maximum": 1000000.0
+            },
+            "farPlane": {
+              "type": "number",
+              "minimum": 0.0002,
+              "maximum": 10000000.0
             }
+          },
+          "dependentRequired": {
+            "verticalFov": ["nearPlane", "farPlane"],
+            "nearPlane": ["verticalFov", "farPlane"],
+            "farPlane": ["verticalFov", "nearPlane"]
           }
         },
         "light": {
@@ -274,7 +244,7 @@
           ],
           "properties": {
             "type": {
-              "const": "directional"
+              "enum": ["directional", "point", "spot"]
             },
             "color": {
               "type": "array",
@@ -301,33 +271,70 @@
             },
             "active": {
               "type": "boolean"
+            },
+            "range": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10000000.0
+            },
+            "innerConeAngle": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMaximum": 1.5707963267948966
+            },
+            "outerConeAngle": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMaximum": 1.5707963267948966
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "enum": ["point", "spot"]
+                  }
+                }
+              },
+              "then": {
+                "required": ["range"],
+                "properties": {
+                  "shadows": {
+                    "const": false
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "spot"
+                  }
+                }
+              },
+              "then": {
+                "required": ["innerConeAngle", "outerConeAngle"]
+              }
+            }
+          ]
         }
       },
       "allOf": [
         {
           "not": {
-            "required": [
-              "assetId",
-              "camera"
-            ]
+            "required": ["assetId", "camera"]
           }
         },
         {
           "not": {
-            "required": [
-              "assetId",
-              "light"
-            ]
+            "required": ["assetId", "light"]
           }
         },
         {
           "not": {
-            "required": [
-              "camera",
-              "light"
-            ]
+            "required": ["camera", "light"]
           }
         }
       ]
@@ -360,10 +367,7 @@
       "if": {
         "properties": {
           "schemaVersion": {
-            "enum": [
-              1,
-              2
-            ]
+            "enum": [1, 2]
           }
         }
       },
@@ -374,14 +378,10 @@
               "not": {
                 "anyOf": [
                   {
-                    "required": [
-                      "camera"
-                    ]
+                    "required": ["camera"]
                   },
                   {
-                    "required": [
-                      "light"
-                    ]
+                    "required": ["light"]
                   }
                 ]
               }
@@ -394,19 +394,73 @@
       "if": {
         "properties": {
           "schemaVersion": {
-            "enum": [
-              1,
-              2,
-              3
-            ]
+            "enum": [1, 2, 3]
           }
         }
       },
       "then": {
         "not": {
-          "required": [
-            "world"
-          ]
+          "required": ["world"]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "enum": [1, 2, 3, 4]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "properties": {
+                "camera": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": ["verticalFov"]
+                      },
+                      {
+                        "required": ["nearPlane"]
+                      },
+                      {
+                        "required": ["farPlane"]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "enum": [1, 2, 3, 4, 5]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "properties": {
+                "light": {
+                  "properties": {
+                    "type": {
+                      "const": "directional"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

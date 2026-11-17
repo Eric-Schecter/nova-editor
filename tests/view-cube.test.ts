@@ -1,5 +1,5 @@
 import { renderCamera } from "../packages/render-contract/bridge";
-import { copyViewCamera } from "../apps/web/public/sdk/src/Camera.js";
+import { copyViewCamera } from "../deps/nova/web/src/Camera.js";
 const validateCamera = (camera: any) => copyViewCamera(renderCamera(camera));
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,7 +14,7 @@ import {
   project,
   transform,
 } from "../packages/editor-core/src/viewport";
-import { loadGLB } from "../apps/web/public/sdk/src/ModelData.js";
+import { loadGLB } from "../deps/nova/web/src/ModelData.js";
 const camera = { yaw: 25, pitch: 20, distance: 8, exposure: 1 };
 test("all six cube presets are accepted by SDK, with stable projection and matching center ray", () => {
   for (const view of standardViews) {

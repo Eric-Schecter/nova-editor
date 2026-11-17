@@ -5,7 +5,7 @@
 ## 依赖安装
 
 ```sh
-pnpm sdk:install https://github.com/Eric-Schecter/nova-render/releases/download/v0.2.0/manifest.json
+pnpm sdk:install
 pnpm sdk:verify
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j 6
@@ -14,7 +14,7 @@ ctest --test-dir build --output-on-failure
 pnpm build:web
 ```
 
-安装器在替换前核对包版本、平台/架构、全部必需功能、SHA-256 及 native/Web 源码提交。`.sdk/` 和 `apps/web/public/sdk/` 是安装缓存，不入 Git。`sdk:verify` 检查文件哈希及双方包内来源信息；禁止混用新版头文件和旧静态库。安装接受正式 GitHub Release manifest 的 HTTPS URL 或本地配对 manifest 路径。nlohmann/json 是编辑器自己的序列化依赖，保留在 `.sdk/support`，不属于渲染扩展。
+安装器在替换前核对包版本、平台/架构、全部必需功能、SHA-256 及 native/Web 源码提交。`deps/nova/native/` 与 `deps/nova/web/` 是可见的正式安装目录，`deps/nova/package/` 保存配对元数据；网页 `apps/web/public/sdk/` 是自动生成的部署副本，均不入 Git。`sdk:verify` 检查正式依赖、网页部署副本的文件哈希及双方包内来源信息；禁止混用新版头文件和旧静态库。安装接受正式 GitHub Release manifest 的 HTTPS URL 或本地配对 manifest 路径。安装默认重放锁文件；版本更新、缓存和回滚见 [SDK-DOWNLOAD.md](SDK-DOWNLOAD.md)。nlohmann/json 是编辑器自己的序列化依赖，已随仓库保存在 `third_party/nlohmann-json/`，不属于渲染扩展。
 
 ## nova-render 负责
 
@@ -36,7 +36,7 @@ pnpm build:web
 
 材质面板先调用正式运行时槽接口，再保存不可变 GLB 资源版本，使共享实例预览与保存、撤销、恢复一致。SDK 支持多槽；编辑器仍可把模型拆成独立子节点，保留既有材质编辑语义。
 
-当前编辑器主相机面板仍采用固定 45° FOV、0.01–200 裁剪和无滚转导航映射。这是编辑器 UI/投影辅助逻辑的限制，SDK 本身已支持完整相机；点光、聚光与多方向光叠加不在本次范围。
+编辑器主相机面板已接入垂直 FOV、近远裁剪及滚转，保存格式 v5；桥接层转换到正式 Camera API，投影、视图立方体与辅助线使用相同镜头参数。旧相机按 45° / 0.01–200 默认值读取。点光、聚光与多方向光叠加不在本次范围。
 
 ## 验收
 
@@ -44,3 +44,11 @@ pnpm build:web
 - 原生 GPU：拾取、摆放、原始单位、环境/雾切换，720 帧布局/相机/模型/材质场景回归。
 - 启动 `pnpm dev:web -- --port 5223` 后执行 `pnpm test:browser`：真实 UI 材质/贴图修改、正交与顶视图、阴影、环境移除、两种雾和 ZIP 保存恢复。
 - nova-render 自身另外覆盖硬/软阴影像素、castShadow 与移动、所有 AA 和 native/Web 拾取一致性；编辑器不再维护这些算法的私有源码副本。
+
+## 下一步：点光、聚光与多灯
+
+需求与双端 API 提案见 [SDK-LIGHTS.md](SDK-LIGHTS.md)。当前锁定 0.2.0 不具备灯光集合能力；由 nova-render 提供数据/集合接口、真实多灯照明、能力与阴影限制，再由编辑器接入节点、属性、辅助显示及项目迁移。文中的接口名是待确认提案，不是现有 SDK API。
+
+## 0.3.0 scene lights
+
+Formal `SetLights` / `setLights` and capability queries now own simultaneous directional/point/spot illumination, shared HLSL attenuation, cone falloff and per-directional-light BVH shadows on Metal/WebGPU raster. Point/spot shadows are explicitly unsupported; other native backends and ray tracing keep the legacy directional API. The editor owns independent node flags, hierarchy transforms, range/cone helpers, UI, scene v6 migration, history and serialization; it does not implement or patch lighting shaders. Exact package provenance is pinned in `nova-sdk.lock.json`.

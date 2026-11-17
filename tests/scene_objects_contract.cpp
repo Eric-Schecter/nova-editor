@@ -66,7 +66,7 @@ int main(int argc, char** argv)
         require(light->light.intensity == 0 && !light->shadows.enabled, "Hidden light still active");
         scene["nodes"][2].erase("hidden");
         editor::setPrimary(scene, "fill", "light");
-        require(editor::sceneDirectional(scene)->id == "fill", "Light switch failed");
+        require(editor::sceneDirectional(scene)->id == "sun", "Light switch failed");
         auto glyphs = editor::sceneGlyphs(scene);
         require(
           glyphs.size() == 4 && glyphs[0].lines.size() == 11 && glyphs[2].lines.size() == 6, "Helper geometry invalid");
@@ -91,7 +91,7 @@ int main(int argc, char** argv)
             if (n.contains("light") && n["light"]["active"] == true)
                 lights++;
         }
-        require(cameras == 1 && lights == 1, "Duplicate took primary status");
+        require(cameras == 1 && lights == 2, "Duplicate took primary status");
         editor::deleteNodes(copied, {"camera-front"});
         require(editor::primaryCamera(copied).empty(), "Deleted camera still primary");
         for (int invalid = 0; invalid < 6; invalid++)
@@ -122,16 +122,7 @@ int main(int argc, char** argv)
         }
         auto rolled                                 = fixture["scene"];
         rolled["nodes"][0]["transform"]["rotation"] = editor::eulerQuaternion({0, 0, 35});
-        bool rejected                               = false;
-        try
-        {
-            editor::sceneCamera(rolled);
-        }
-        catch (...)
-        {
-            rejected = true;
-        }
-        require(rejected, "Unsupported roll silently ignored");
+        close(editor::sceneCamera(rolled)->roll, 35);
         std::cout << "Scene object contract: v3 validation, camera / light transforms, orthographic/poles, main "
                      "switching, helpers, duplicate/delete and undo passed\n";
         return 0;

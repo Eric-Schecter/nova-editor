@@ -4,6 +4,7 @@ import {
   add,
   mul,
   cameraFrame,
+  cameraTangent,
   transform,
   type Camera,
   type Size,
@@ -63,7 +64,7 @@ export function frameBounds(
       ),
     );
   const tangent =
-    Math.tan(Math.PI / 8) *
+    cameraTangent(camera) *
     Math.min(1, Math.max(0.01, size.width / Math.max(1, size.height)));
   const factor = camera.orthographic ? tangent : Math.sin(Math.atan(tangent));
   return {
@@ -80,7 +81,7 @@ export function panCamera(
 ): Camera {
   const f = cameraFrame(camera),
     unit =
-      (2 * camera.distance * Math.tan(Math.PI / 8)) / Math.max(1, size.height);
+      (2 * camera.distance * cameraTangent(camera)) / Math.max(1, size.height);
   return {
     ...camera,
     target: add(

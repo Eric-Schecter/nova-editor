@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { SceneData } from "../apps/web/public/sdk/src/SceneData.js";
+import { SceneData } from "../deps/nova/web/src/SceneData.js";
 import {
   groundedTransform,
   placementAt,

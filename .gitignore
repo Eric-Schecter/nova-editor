@@ -17,3 +17,7 @@ build-*/
 *.log
 .env
 .env.*
+
+# Installed paired renderer packages and rebuildable download state
+deps/nova/
+.cache/nova/

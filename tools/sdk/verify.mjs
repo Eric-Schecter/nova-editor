@@ -1,70 +1,92 @@
-import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
-const lock = JSON.parse(await readFile("nova-sdk.lock.json", "utf8"));
-if (lock.formatVersion >= 2) {
+import { readFile, access } from "node:fs/promises";
+import { resolve, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+  sha256,
+  validateManifest,
+  assertPaired,
+  assertLockedManifest,
+  validateLockedRelease,
+} from "./core.mjs";
+import { layout, stateRoot, currentLayoutLock } from "./paths.mjs";
+import { installedFiles, installedFilesForWeb } from "./install.mjs";
+export async function verifyWebDeployment(root, lock) {
+  const files = await installedFilesForWeb(root, layout.webPublic);
+  const expected = Object.fromEntries(
+    Object.entries(lock.files)
+      .filter(([p]) => p.startsWith(layout.web + "/"))
+      .map(([p, h]) => [layout.webPublic + p.slice(layout.web.length), h]),
+  );
   if (
-    lock.sourceDirty ||
-    lock.extensions.length ||
-    !["local-package", "github-release"].includes(lock.channel)
-  )
-    throw Error("Expected a clean formal package without private extensions");
-  const manifestBytes = await readFile(".sdk/package/manifest.json");
-  if (
-    createHash("sha256").update(manifestBytes).digest("hex") !==
-    lock.package.manifestSha256
-  )
-    throw Error("Paired manifest checksum mismatch");
-  const manifest = JSON.parse(manifestBytes);
-  for (const path of [
-    ".sdk/native/share/nova-render/build-info.json",
-    "apps/web/public/sdk/generated/manifest.json",
-  ]) {
-    const metadata = JSON.parse(await readFile(path, "utf8"));
-    if (
-      metadata.sourceDirty ||
-      metadata.version !== lock.version ||
-      metadata.sourceCommit !== lock.sourceCommit ||
-      metadata.sourceCommit !== manifest.sourceCommit
-    )
-      throw Error("Mixed SDK provenance: " + path);
-  }
-}
-// A legacy extension must have an explicit upstream owner and migration phase.
-const migration = JSON.parse(
-  await readFile("packages/render-contract/migration.json", "utf8"),
-);
-for (const extension of lock.extensions ?? []) {
-  const entry = migration.extensionOwnership[extension];
-  if (
-    !entry ||
-    entry.implementationOwner !== "nova-render" ||
-    !migration.phases.some(
-      (phase) =>
-        phase.id === entry.phase && phase.extensions.includes(extension),
-    )
+    JSON.stringify(Object.entries(files).sort()) !==
+    JSON.stringify(Object.entries(expected).sort())
   )
     throw Error(
-      `SDK extension lacks a reviewed owner/migration phase: ${extension}`,
+      "Web SDK deployment differs from locked deps/nova/web; run sdk:sync-web",
     );
 }
-for (const [path, expected] of Object.entries(lock.files)) {
-  const actual = createHash("sha256")
-    .update(await readFile(path))
-    .digest("hex");
-  if (actual !== expected) throw Error(`SDK checksum mismatch: ${path}`);
-}
-if (lock.editorPatch) {
-  for (const [path, expected] of [
-    [lock.editorPatch.path, lock.editorPatch.sha256],
-    [lock.editorPatch.baseManifest, lock.editorPatch.baseManifestSha256],
-  ]) {
-    const actual = createHash("sha256")
-      .update(await readFile(path))
-      .digest("hex");
-    if (actual !== expected)
-      throw Error(`SDK provenance checksum mismatch: ${path}`);
+export async function verify(root = process.cwd(), { deployment = true } = {}) {
+  try {
+    await access(join(root, stateRoot, "install-state.json"));
+    throw Error(
+      "SDK installation is incomplete; run sdk:install to recover before building",
+    );
+  } catch (e) {
+    if (e.code !== "ENOENT") throw e;
   }
+  const lock = JSON.parse(
+    await readFile(join(root, "nova-sdk.lock.json"), "utf8"),
+  );
+  if (
+    lock.formatVersion !== 4 ||
+    lock.sourceDirty !== false ||
+    lock.extensions?.length !== 0 ||
+    !["local-package", "github-release"].includes(lock.channel)
+  )
+    throw Error("Expected a clean paired SDK lock without private extensions");
+  currentLayoutLock(lock);
+  currentLayoutLock(lock);
+  if (lock.formatVersion >= 3 && lock.channel === "github-release")
+    validateLockedRelease(lock);
+  const bytes = await readFile(join(root, layout.package, "manifest.json")),
+    manifest = validateManifest(JSON.parse(bytes), {
+      expectedVersion: lock.version,
+    });
+  assertLockedManifest(lock, bytes, manifest);
+  const native = JSON.parse(
+      await readFile(
+        join(root, layout.native, "share/nova-render/build-info.json"),
+        "utf8",
+      ),
+    ),
+    web = JSON.parse(
+      await readFile(join(root, layout.web, "generated/manifest.json"), "utf8"),
+    );
+  let pkg;
+  if (lock.formatVersion >= 3)
+    pkg = JSON.parse(
+      await readFile(join(root, layout.package, "web-package.json"), "utf8"),
+    );
+  assertPaired(manifest, native, web, pkg);
+  const actual = await installedFiles(root);
+  if (
+    JSON.stringify(Object.entries(actual).sort()) !==
+    JSON.stringify(Object.entries(lock.files).sort())
+  )
+    throw Error(
+      "SDK file checksum/inventory mismatch; run sdk:install to restore locked packages",
+    );
+  if (deployment) await verifyWebDeployment(root, lock);
+  console.log(
+    `Verified Nova ${lock.version}: ${Object.keys(actual).length} files (${lock.channel}, ${lock.target}, source ${lock.sourceCommit.slice(0, 12)}).`,
+  );
+  return lock;
 }
-console.log(
-  `Verified ${Object.keys(lock.files).length} SDK files (${lock.channel}, ${lock.target}).`,
-);
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+)
+  verify().catch((e) => {
+    console.error(e.message);
+    process.exitCode = 1;
+  });

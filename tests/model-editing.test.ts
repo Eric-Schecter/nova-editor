@@ -25,7 +25,7 @@ import {
   packProject,
   unpackProject,
 } from "../packages/editor-core/src/project";
-import { loadGLB } from "../apps/web/public/sdk/src/ModelData.js";
+import { loadGLB } from "../deps/nova/web/src/ModelData.js";
 const bytes = new Uint8Array(readFileSync("tests/fixtures/model-parts.glb"));
 const allocator = () => {
   let i = 0;

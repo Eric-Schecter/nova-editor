@@ -1,5 +1,5 @@
 import { renderCamera } from "../packages/render-contract/bridge";
-import { copyViewCamera } from "../apps/web/public/sdk/src/Camera.js";
+import { copyViewCamera } from "../deps/nova/web/src/Camera.js";
 const validateCamera = (camera: any) => copyViewCamera(renderCamera(camera));
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -109,10 +109,10 @@ test("directional nodes preserve linear color/intensity/shadows and follow paren
   light = sceneDirectional(s)!;
   close(light.direction, norm([2, 1.6, 1]));
   setPrimary(s, "fill", "light");
-  assert.equal(sceneDirectional(s)!.id, "fill");
-  assert.equal(s.nodes.filter((n) => n.light?.active).length, 1);
+  assert.equal(sceneDirectional(s)!.id, "sun");
+  assert.equal(s.nodes.filter((n) => n.light?.active).length, 2);
   setPrimary(s, "fill", "light", false);
-  assert.equal(sceneDirectional(s), null);
+  assert.equal(sceneDirectional(s)!.id, "sun");
 });
 test("switch, duplicate, delete, undo, archive and recovery preserve unique primary components and v3 while reading legacy v1/v2", () => {
   const h = new EditorHistory(scene());
@@ -151,7 +151,7 @@ test("camera / light gizmo helper geometry follows hierarchy, is hidden with anc
   assert.equal(sceneGlyphs(s).length, 3);
   assert.equal(primaryCamera(s), undefined);
 });
-test("invalid components and unsupported camera roll reject explicitly without corrupting transactions", () => {
+test("invalid components reject and camera roll is preserved without corrupting transactions", () => {
   for (const mutate of [
     (s: any) => (s.schemaVersion = 2),
     (s: any) => (s.nodes[0].camera.exposure = Infinity),
@@ -170,7 +170,7 @@ test("invalid components and unsupported camera roll reject explicitly without c
   }
   const s = scene();
   s.nodes[0].transform.rotation = eulerQuaternion([0, 0, 35]);
-  assert.throws(() => sceneCamera(s), /滚转/);
+  assert.ok(Math.abs(sceneCamera(s)!.roll! - 35) < 1e-5);
   const h = new EditorHistory(scene()),
     before = h.scene;
   assert.throws(() => h.commit((s) => (s.nodes[0].camera!.focusDistance = 0)));

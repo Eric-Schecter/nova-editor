@@ -78,12 +78,12 @@ namespace editor
     {
         if (
           !s.is_object()
-          || (s.at("schemaVersion") != 1 && s.at("schemaVersion") != 2 && s.at("schemaVersion") != 3 && s.at("schemaVersion") != 4)
+          || (s.at("schemaVersion") != 1 && s.at("schemaVersion") != 2 && s.at("schemaVersion") != 3 && s.at("schemaVersion") != 4 && s.at("schemaVersion") != 5 && s.at("schemaVersion") != 6)
           || !s.at("name").is_string() || !s.at("nodes").is_array() || !s.at("assets").is_object())
             throw std::runtime_error("Unsupported or malformed scene");
         if (s.contains("world"))
         {
-            if (s["schemaVersion"] != 4)
+            if (s["schemaVersion"].get<int>() < 4)
                 throw std::runtime_error("World settings require scene format 4");
             validateWorld(s["world"]);
         }
@@ -161,15 +161,30 @@ namespace editor
                   || !range(c.at("focusDistance"), .05, 100) || !range(c.at("orthographicSize"), .05, 80)
                   || !range(c.at("exposure"), .01, 16) || !c.at("primary").is_boolean())
                     throw std::runtime_error("Invalid camera component");
+                if (c.contains("verticalFov") || c.contains("nearPlane") || c.contains("farPlane"))
+                {
+                    if (
+                      s["schemaVersion"].get<int>() < 5 || !range(c.at("verticalFov"), 1, 179)
+                      || !range(c.at("nearPlane"), .0001, 1e6) || !range(c.at("farPlane"), .0002, 1e7)
+                      || c["farPlane"].get<double>() <= c["nearPlane"].get<double>())
+                        throw std::runtime_error("Invalid camera lens or format (requires v5)");
+                }
             }
             if (n.contains("light"))
             {
+                if (id.size() > 128)
+                    throw std::runtime_error("Light ID exceeds 128 UTF-8 bytes");
                 const auto& l = n["light"];
                 if (
-                  !l.is_object() || l.at("type") != "directional" || !l.at("color").is_array() || l["color"].size() != 3
-                  || !range(l.at("intensity"), 0, 100) || !range(l.at("softness"), 0, 4)
-                  || !l.at("shadows").is_boolean() || !l.at("active").is_boolean())
+                  !l.is_object()
+                  || (l.at("type") != "directional" && (s["schemaVersion"].get<int>() < 6 || (l.at("type") != "point" && l.at("type") != "spot")))
+                  || !l.at("color").is_array() || l["color"].size() != 3 || !range(l.at("intensity"), 0, 100)
+                  || !range(l.at("softness"), 0, 4) || !l.at("shadows").is_boolean() || !l.at("active").is_boolean())
                     throw std::runtime_error("Invalid light component");
+                if (l["type"] != "directional" && (!range(l.at("range"), 0, 1e7) || l["shadows"] != false))
+                    throw std::runtime_error("Invalid range or unsupported point/spot shadows");
+                if(l["type"] == "spot" && (!range(l.at("innerConeAngle"),0,1.5707963267948966) || !range(l.at("outerConeAngle"),0,1.5707963267948966) || l["innerConeAngle"].get<double>() > l["outerConeAngle"].get<double>() || l["outerConeAngle"].get<double>() >= 1.5707963267948966))
+                    throw std::runtime_error("Invalid spot cone angles");
                 for (const auto& v : l["color"])
                     if (!range(v, 0, 1))
                         throw std::runtime_error("Invalid light color");
@@ -184,8 +199,10 @@ namespace editor
             if (n.contains("light") && n["light"]["active"] == true)
                 active++;
         }
-        if (primary > 1 || active > 1)
+        if (primary > 1 || (s["schemaVersion"].get<int>() < 6 && active > 1))
             throw std::runtime_error("Only one primary camera / active directional light supported");
+        if (std::count_if(s["nodes"].begin(), s["nodes"].end(), [](const auto& n) { return n.contains("light"); }) > 16)
+            throw std::runtime_error("Maximum 16 scene lights");
         for (const auto& [id, n] : nodes)
         {
             std::set<std::string> seen{id};

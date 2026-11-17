@@ -34,10 +34,14 @@ Multiple selected subtrees use a shared pivot and one frozen world-space delta. 
 
 ## Saved light and camera nodes (scene v3)
 
-The editor maps one active directional-light component to existing SetDirectionalLight/setDirectionalLight plus shadow settings, and one primary camera component to OrbitCamera/setCamera during explicit preview. Camera translation comes from the full hierarchy, orientation from its rotation chain; object scale does not stretch the lens or light direction. Orthographic height converts to orbit distance using tan(22.5 degrees). Unsupported camera roll is detected before calling Nova. The installed SDK ABI and hashes remain unchanged; fixed FOV/clipping and one direct light remain explicit limits.
+The editor maps one active directional-light component to existing SetDirectionalLight/setDirectionalLight plus shadow settings, and one primary camera component to OrbitCamera/setCamera during explicit preview. Camera translation comes from the full hierarchy, orientation from its rotation chain; object scale does not stretch the lens or light direction. Orthographic height is independent of perspective FOV; navigation distance converts using the authored FOV tangent. Node rotation includes roll and maps to the formal quaternion API. Lens edits use scene v5, with 45 degrees and 0.01–200 defaults for legacy cameras. SDK binaries and hashes are unchanged. One active direct light remains a limit.
 
 The document persists components, not GPU handles, preview flags or editor navigation. Editors continue to read legacy v1/v2, and write v3 when components are introduced. Camera/light markers and schematic frusta are editor overlays with screen-space picking, not renderer assets. No GLB camera/light import is claimed by this component implementation.
 
 ## World settings (scene v4)
 
 World document validation, .nenv asset ownership, undo, ZIP, SaveAs and recovery belong to the editor. The installed atmosphere extension supplies runtime environment clear and raster fog; fog implementation and uniform/shader layouts belong to nova-render. Keep the installed paired snapshot until official replacements pass cross-platform editor regression. Background/color parameters and authored world data are converted by the adapter, not exposed as editor schema types in the rendering library.
+
+## Camera lenses and roll (scene v5)
+
+Camera components optionally carry verticalFov/nearPlane/farPlane as a complete tuple. Apply/capture upgrades the project to v5, while legacy tuples default to 45 degrees, 0.01 and 200. Roll is part of the authored node quaternion, never a second serialized orientation offset. Parent rotation supplies orientation and full parent transforms supply position. Camera capture inverts those channels separately, preserving authored node scale. Exact-pole Euler decompositions can display equivalent yaw/roll values without changing the rendered basis.

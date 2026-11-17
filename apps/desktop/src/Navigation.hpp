@@ -74,17 +74,16 @@ namespace editor
             double half = (b->maximum[k] - b->minimum[k]) * .5;
             radius += half * half;
         }
-        radius = std::max(.02, std::sqrt(radius));
-        double tangent =
-                 std::tan(3.141592653589793 / 8) * std::min(1., std::max(.01, s.width / std::max(1., s.height))),
-               factor = c.orthographic ? tangent : std::sin(std::atan(tangent));
-        c.distance    = std::clamp(radius * 1.15 / factor, .05, 100.);
+        radius         = std::max(.02, std::sqrt(radius));
+        double tangent = cameraTangent(c) * std::min(1., std::max(.01, s.width / std::max(1., s.height))),
+               factor  = c.orthographic ? tangent : std::sin(std::atan(tangent));
+        c.distance     = std::clamp(radius * 1.15 / factor, .05, 100.);
         return c;
     }
     inline Camera panCamera(Camera c, double dx, double dy, Size size)
     {
         auto   f    = cameraFrame(c);
-        double unit = 2 * c.distance * std::tan(3.141592653589793 / 8) / std::max(1., size.height);
+        double unit = 2 * c.distance * cameraTangent(c) / std::max(1., size.height);
         c.target    = add(c.target, add(times(f.right, -dx * unit), times(f.up, dy * unit)));
         return c;
     }

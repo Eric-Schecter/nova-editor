@@ -274,7 +274,7 @@ int main()
                 }
         });
         modelEditor.createPrimitive("box");
-        require(modelEditor.history.scene["schemaVersion"] == 3, "Geometry creation downgraded scene v3");
+        require(modelEditor.history.scene["schemaVersion"] == 6, "Geometry creation downgraded scene v6");
         auto objects = modelEditor.history.scene;
         modelEditor.autosave(true);
         auto   objectRecovery = modelEditor.recoveryFolder;

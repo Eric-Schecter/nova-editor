@@ -13,6 +13,10 @@ export type Camera = {
   exposure: number;
   orthographic?: boolean;
   target?: number[];
+  roll?: number;
+  verticalFov?: number;
+  nearPlane?: number;
+  farPlane?: number;
 };
 export type Size = { width: number; height: number };
 export type Mode = "translate" | "rotate" | "scale";
@@ -59,6 +63,25 @@ export function inverse(m: Vec): Vec | null {
   result.splice(12, 3, ...mul(t, -1));
   return result;
 }
+export const cameraTangent = (c: Camera) =>
+  Math.tan(((c.verticalFov ?? 45) * Math.PI) / 360);
+export const cameraNear = (c: Camera) => c.nearPlane ?? 0.01;
+export const cameraFar = (c: Camera) => c.farPlane ?? 200;
+export function cameraOrientation(c: Pick<Camera, "yaw" | "pitch" | "roll">) {
+  const y = (c.yaw * Math.PI) / 360,
+    p = (c.pitch * Math.PI) / 360,
+    r = ((c.roll ?? 0) * Math.PI) / 360;
+  const x = -Math.cos(y) * Math.sin(p),
+    qY = Math.sin(y) * Math.cos(p),
+    z = Math.sin(y) * Math.sin(p),
+    w = Math.cos(y) * Math.cos(p);
+  return [
+    x * Math.cos(r) + qY * Math.sin(r),
+    qY * Math.cos(r) - x * Math.sin(r),
+    z * Math.cos(r) + w * Math.sin(r),
+    w * Math.cos(r) - z * Math.sin(r),
+  ];
+}
 export function cameraFrame(c: Camera) {
   const y = (c.yaw * Math.PI) / 180,
     p = (c.pitch * Math.PI) / 180,
@@ -70,18 +93,21 @@ export function cameraFrame(c: Camera) {
     target = c.target ?? [0, 0, 0],
     position = add(eye, target),
     forward = norm(mul(eye, -1)),
-    right = [Math.cos(y), 0, -Math.sin(y)],
-    up = cross(right, forward);
+    baseRight = [Math.cos(y), 0, -Math.sin(y)],
+    baseUp = cross(baseRight, forward),
+    roll = ((c.roll ?? 0) * Math.PI) / 180,
+    right = add(mul(baseRight, Math.cos(roll)), mul(baseUp, Math.sin(roll))),
+    up = add(mul(baseUp, Math.cos(roll)), mul(baseRight, -Math.sin(roll)));
   return { eye: position, forward, right, up };
 }
 export function project(v: Vec, c: Camera, size: Size): Point | null {
   const frame = cameraFrame(c),
     rel = sub(v, frame.eye),
     depth = dot(rel, frame.forward);
-  if (depth < 0.01 || depth > 200) return null;
+  if (depth < cameraNear(c) || depth > cameraFar(c)) return null;
   const scale =
     size.height /
-    (2 * Math.tan(Math.PI / 8) * (c.orthographic ? c.distance : depth));
+    (2 * cameraTangent(c) * (c.orthographic ? c.distance : depth));
   return {
     x: size.width / 2 + dot(rel, frame.right) * scale,
     y: size.height / 2 - dot(rel, frame.up) * scale,
@@ -92,8 +118,8 @@ export function rayAt(p: Point, c: Camera, size: Size) {
     x =
       ((p.x * 2) / size.width - 1) *
       (size.width / size.height) *
-      Math.tan(Math.PI / 8),
-    y = (1 - (p.y * 2) / size.height) * Math.tan(Math.PI / 8);
+      cameraTangent(c),
+    y = (1 - (p.y * 2) / size.height) * cameraTangent(c);
   if (c.orthographic)
     return {
       origin: add(
@@ -101,13 +127,16 @@ export function rayAt(p: Point, c: Camera, size: Size) {
           f.eye,
           add(mul(f.right, x * c.distance), mul(f.up, y * c.distance)),
         ),
-        mul(f.forward, 0.010001),
+        mul(f.forward, cameraNear(c) * (1 + 1e-6)),
       ),
       direction: f.forward,
     };
   const direction = norm(add(f.forward, add(mul(f.right, x), mul(f.up, y))));
   return {
-    origin: add(f.eye, mul(direction, 0.010001 / dot(direction, f.forward))),
+    origin: add(
+      f.eye,
+      mul(direction, (cameraNear(c) * (1 + 1e-6)) / dot(direction, f.forward)),
+    ),
     direction,
   };
 }
@@ -159,7 +188,7 @@ export function gizmoFor(
   const radius =
       (82 *
         2 *
-        Math.tan(Math.PI / 8) *
+        cameraTangent(camera) *
         (camera.orthographic ? camera.distance : depth)) /
       size.height /
       maxLength,

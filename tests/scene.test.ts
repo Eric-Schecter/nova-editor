@@ -25,7 +25,7 @@ test("reject dangerous paths, duplicate IDs, missing parent, invalid transform a
     (s: any) => (s.nodes[1].assetId = "absent"),
     (s: any) => (s.nodes[0].transform.position[0] = Infinity),
     (s: any) => (s.nodes[0].transform.rotation = [0, 0, 0, 0]),
-    (s: any) => (s.schemaVersion = 5),
+    (s: any) => (s.schemaVersion = 7),
   ]) {
     const s = fixture();
     edit(s);

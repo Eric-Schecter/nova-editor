@@ -13,6 +13,7 @@ namespace editor
         double yaw = 25, pitch = 20, distance = 8;
         bool   orthographic = false;
         V3     target{0, 0, 0};
+        double roll = 0, verticalFov = 45, nearPlane = .01, farPlane = 200;
     };
     struct Size
     {
@@ -93,16 +94,35 @@ namespace editor
     {
         V3 eye, forward, right, up;
     };
+    inline double cameraTangent(const Camera& c)
+    {
+        return std::tan(c.verticalFov * 3.141592653589793 / 360);
+    }
+    inline std::array<float, 4> cameraOrientation(double yaw, double pitch, double roll = 0)
+    {
+        double y = yaw * 3.141592653589793 / 360, p = pitch * 3.141592653589793 / 360,
+               r = roll * 3.141592653589793 / 360, x = -std::cos(y) * std::sin(p), qy = std::sin(y) * std::cos(p),
+               z = std::sin(y) * std::sin(p), w = std::cos(y) * std::cos(p);
+        return {
+          float(x * std::cos(r) + qy * std::sin(r)),
+          float(qy * std::cos(r) - x * std::sin(r)),
+          float(z * std::cos(r) + w * std::sin(r)),
+          float(w * std::cos(r) - z * std::sin(r))};
+    }
     inline CameraFrame cameraFrame(Camera c)
     {
         double      y = c.yaw * 3.141592653589793 / 180, p = c.pitch * 3.141592653589793 / 180;
         CameraFrame f;
         f.eye = {
           c.distance * std::cos(p) * std::sin(y), c.distance * std::sin(p), c.distance * std::cos(p) * std::cos(y)};
-        f.forward = unit(times(f.eye, -1));
-        f.right   = {std::cos(y), 0, -std::sin(y)};
-        f.up      = cross(f.right, f.forward);
-        f.eye     = add(f.eye, c.target);
+        f.forward    = unit(times(f.eye, -1));
+        f.right      = {std::cos(y), 0, -std::sin(y)};
+        f.up         = cross(f.right, f.forward);
+        auto   right = f.right, up = f.up;
+        double roll = c.roll * 3.141592653589793 / 180;
+        f.right     = add(times(right, std::cos(roll)), times(up, std::sin(roll)));
+        f.up        = add(times(up, std::cos(roll)), times(right, -std::sin(roll)));
+        f.eye       = add(f.eye, c.target);
         return f;
     }
     struct Ray
@@ -114,24 +134,24 @@ namespace editor
         auto   f     = cameraFrame(c);
         auto   rel   = sub(v, f.eye);
         double depth = dot(rel, f.forward);
-        if (depth < .01 || depth > 200)
+        if (depth < c.nearPlane || depth > c.farPlane)
             return {};
-        double scale = s.height / (2 * std::tan(3.141592653589793 / 8) * (c.orthographic ? c.distance : depth));
+        double scale = s.height / (2 * cameraTangent(c) * (c.orthographic ? c.distance : depth));
         return Screen{s.width / 2 + dot(rel, f.right) * scale, s.height / 2 - dot(rel, f.up) * scale};
     }
     inline Ray rayAt(Screen p, Camera c, Size s)
     {
         auto   f = cameraFrame(c);
-        double x = (p.x * 2 / s.width - 1) * (s.width / s.height) * std::tan(3.141592653589793 / 8),
-               y = (1 - p.y * 2 / s.height) * std::tan(3.141592653589793 / 8);
+        double x = (p.x * 2 / s.width - 1) * (s.width / s.height) * cameraTangent(c),
+               y = (1 - p.y * 2 / s.height) * cameraTangent(c);
         if (c.orthographic)
             return {
               add(
                 add(f.eye, add(times(f.right, x * c.distance), times(f.up, y * c.distance))),
-                times(f.forward, .010001)),
+                times(f.forward, c.nearPlane * (1 + 1e-6))),
               f.forward};
         auto direction = unit(add(f.forward, add(times(f.right, x), times(f.up, y))));
-        return {add(f.eye, times(direction, .010001 / dot(direction, f.forward))), direction};
+        return {add(f.eye, times(direction, c.nearPlane * (1 + 1e-6) / dot(direction, f.forward))), direction};
     }
     struct GizmoLine
     {
@@ -179,8 +199,8 @@ namespace editor
               std::sqrt(
                 double(basis[i * 4]) * basis[i * 4] + double(basis[i * 4 + 1]) * basis[i * 4 + 1]
                 + double(basis[i * 4 + 2]) * basis[i * 4 + 2]));
-        double radius = 82 * 2 * std::tan(3.141592653589793 / 8) * (camera.orthographic ? camera.distance : depth)
-                        / size.height / maxLength;
+        double radius =
+          82 * 2 * cameraTangent(camera) * (camera.orthographic ? camera.distance : depth) / size.height / maxLength;
         Gizmo g{mode, basis, *inv, radius, *p, {}, id, (*node)["transform"], camera, size};
         for (int k = 0; k < 3; ++k)
         {

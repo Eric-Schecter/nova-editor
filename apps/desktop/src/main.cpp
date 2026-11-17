@@ -291,19 +291,19 @@ struct Editor
     bool                         mainPreview = false;
     editor::OrbitCamera          editorCamera;
     std::string                  sceneViewKey, cameraNotice;
-    void                         addSceneObject(const std::string& kind)
+    void                         addSceneObject(const std::string& kind, const std::string& lightType = "directional")
     {
         auto id   = uuid();
         auto node = kind == "camera" ? editor::createCamera(id, window ? window->GetCamera() : editorCamera)
-                                     : editor::createLight(id);
+                                     : editor::createLight(id, lightType);
         change([&](auto& s) {
-            s["schemaVersion"] = std::max(3, s["schemaVersion"].template get<int>());
+            s["schemaVersion"] = std::max(kind == "light" ? 6 : 5, s["schemaVersion"].template get<int>());
             s["nodes"].push_back(node);
             bool active = false;
             for (const auto& n : s["nodes"])
                 if (n.contains(kind) && n[kind][kind == "camera" ? "primary" : "active"] == true)
                     active = true;
-            if (!active)
+            if (kind == "light" || !active)
                 editor::setPrimary(s, id, kind);
         });
         select(id);
@@ -371,8 +371,7 @@ struct Editor
         window->SetClearColor({color[0], color[1], color[2], 1});
         auto light = editor::sceneDirectional(history.scene);
         window->SetLighting(lit ? render::LightingMode::PBR : render::LightingMode::Unlit);
-        window->SetDirectionalLight(light ? light->light : studio.light());
-        window->SetShadows(light ? light->shadows : render::SceneShadowSettings{studio.shadows, studio.softness});
+        editor::applySceneLights(*window, history.scene, studio.light(), {studio.shadows, studio.softness});
         if (mainPreview)
             try
             {
@@ -402,13 +401,17 @@ struct Editor
           node,
           mainPreview,
           cameraNotice,
-          [this, id, kind](editor::Json component, double yaw, double pitch) {
-              action([this, id, kind, component, yaw, pitch] {
+          [this, id, kind](editor::Json component, double yaw, double pitch, double roll) {
+              action([this, id, kind, component, yaw, pitch, roll] {
                   change([&](auto& s) {
-                      editor::aimObject(s, id, yaw, pitch);
+                      editor::aimObject(s, id, yaw, pitch, roll);
                       for (auto& n : s["nodes"])
                           if (n["id"] == id)
+                          {
                               n[kind] = component;
+                              s["schemaVersion"] =
+                                std::max(kind == "light" ? 6 : 5, s["schemaVersion"].template get<int>());
+                          }
                   });
               });
           },
@@ -1080,8 +1083,7 @@ struct Editor
             auto color = editor::worldColor(world["background"]["color"], false);
             window->SetClearColor({color[0], color[1], color[2], 1});
             auto light = editor::sceneDirectional(history.scene);
-            window->SetDirectionalLight(light ? light->light : config.light());
-            window->SetShadows(light ? light->shadows : render::SceneShadowSettings{config.shadows, config.softness});
+            editor::applySceneLights(*window, history.scene, config.light(), {config.shadows, config.softness});
         });
     }
     void drawLightSettings()
@@ -1089,7 +1091,7 @@ struct Editor
         if (auto light = editor::sceneDirectional(history.scene))
         {
             editor::theme::heading("Scene lighting");
-            ImGui::TextWrapped("Edit the active directional light node.");
+            ImGui::TextWrapped("Edit individual scene light nodes. Point/spot shadows are unsupported.");
             if (ImGui::Button("Select scene light", {-1, 29}))
             {
                 auto id = light->id;
@@ -1267,6 +1269,10 @@ struct Editor
             {
                 if (ImGui::MenuItem("Directional light"))
                     action([this] { addSceneObject("light"); });
+                if (ImGui::MenuItem("Point light"))
+                    action([this] { addSceneObject("light", "point"); });
+                if (ImGui::MenuItem("Spot light"))
+                    action([this] { addSceneObject("light", "spot"); });
                 if (ImGui::MenuItem("Camera"))
                     action([this] { addSceneObject("camera"); });
 
@@ -1445,7 +1451,7 @@ struct Editor
                       action([this, world] {
                           editor::validateWorld(world);
                           change([&](auto& s) {
-                              s["schemaVersion"] = 4;
+                              s["schemaVersion"] = std::max(4, s["schemaVersion"].template get<int>());
                               s["world"]         = world;
                           });
                       });
@@ -1469,7 +1475,7 @@ struct Editor
                               world["environment"]["map"]  = relative;
                               world["environment"]["name"] = path.filename().string();
                               world["background"]["mode"]  = "environment";
-                              s["schemaVersion"]           = 4;
+                              s["schemaVersion"]           = std::max(4, s["schemaVersion"].template get<int>());
                               s["world"]                   = world;
                           });
                       });
@@ -1903,9 +1909,9 @@ struct Editor
     }
     void frame(const std::string& id)
     {
-        auto           c = window->GetCamera();
-        editor::Camera camera{c.yaw, c.pitch, c.distance, c.orthographic, {c.target[0], c.target[1], c.target[2]}};
-        auto           box = editor::sceneBounds(history.scene, assetBounds, id);
+        auto           c      = window->GetCamera();
+        editor::Camera camera = editor::navigationCamera(c);
+        auto           box    = editor::sceneBounds(history.scene, assetBounds, id);
         if (!id.empty())
         {
             const auto& n = editor::nodeById(history.scene, id);

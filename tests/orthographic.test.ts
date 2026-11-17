@@ -1,5 +1,5 @@
 import { renderCamera } from "../packages/render-contract/bridge";
-import { copyViewCamera } from "../apps/web/public/sdk/src/Camera.js";
+import { copyViewCamera } from "../deps/nova/web/src/Camera.js";
 const validateCamera = (camera: any) => copyViewCamera(renderCamera(camera));
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,7 +17,7 @@ import {
   transform,
 } from "../packages/editor-core/src/viewport";
 import { standardViews } from "../packages/editor-core/src/view-cube";
-import { sceneUniforms } from "../apps/web/public/sdk/src/ModelData.js";
+import { sceneUniforms } from "../deps/nova/web/src/ModelData.js";
 import { emptyScene, identity } from "../packages/scene-schema/index";
 const close = (a: number, b: number) =>
   assert.ok(Math.abs(a - b) < 0.0001, `${a} != ${b}`);

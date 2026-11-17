@@ -6,7 +6,7 @@
 
 以 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md) 为当前分工：nova-render 负责实例/原始空间、完整相机/视口、射线查询、运行时材质、场景阴影及雾效；nova-editor 负责层级/TRS计算、选择与gizmo策略、资产编辑、项目持久化和 SDK 版本管理。通用调试绘制和窗口/UI挂钩由库提供，布局和显示/输入策略由编辑器决定。
 
-已接入 nova-render 0.2 配对包，原生/Web 依赖由版本、干净源码提交与 SHA-256 固定，旧实例、拾取、阴影、雾与 UI 私有补丁已退役。编辑器不再编译或修改渲染器源码；`RenderBridge` 只映射既有导航和项目字段到正式 API。库的渲染实例仍不充当编辑器文档/ECS。当前包是本地候选，并未创建 GitHub Release；开发归档按版本加源码提交区分，不能把同名文件当作稳定版本。已验证状态见 `packages/render-contract/migration.json` 和 `docs/SDK-OWNERSHIP.md`。
+已接入 nova-render 0.3 配对包，原生/Web 依赖由版本、干净源码提交与 SHA-256 固定，旧实例、拾取、阴影、雾与 UI 私有补丁已退役。编辑器不再编译或修改渲染器源码；`RenderBridge` 只映射既有导航和项目字段到正式 API。库的渲染实例仍不充当编辑器文档/ECS。当前依赖来自正式 GitHub Release 0.3.0；由配对 manifest、源码提交与文件校验锁定。已验证状态见 `packages/render-contract/migration.json` 和 `docs/SDK-OWNERSHIP.md`。
 
 ## 目标与范围
 
@@ -126,7 +126,7 @@ GPU 拾取与选择轮廓可由 Nova 提供；当前使用包围盒宽阶段加�
 
 Web 包建议单独发布为 @nova/render-web，提供 ESM、类型声明、exports 和预生成 shader 资源；不夹带文档站与样例大型模型。Editor 安装后即可运行，不要求 DXC、Naga 或本地 HLSL 服务。包名是提案，发布前需要确认命名空间权限。
 
-第一阶段原生分发使用 Release 附件或私有对象存储 + 清单。tools/sdk 根据 nova-sdk.lock.json 下载、校验、解包到忽略提交的缓存，使用 CMAKE_PREFIX_PATH 定位包。可搬迁安装包必须在无 Nova 源码、无原始 build 路径环境进行外部 consumer 构建验证。
+第一阶段原生分发使用 Release 附件或私有对象存储 + 清单。tools/sdk 根据 nova-sdk.lock.json 下载、校验、解包到忽略提交的可见 `deps/nova/` 安装目录，使用 CMAKE_PREFIX_PATH 定位包。可搬迁安装包必须在无 Nova 源码、无原始 build 路径环境进行外部 consumer 构建验证。
 
 锁文件应包含 releaseId、full commit、协议版本、Web 精确版本、各原生 target 的 URL/hash/ABI/features。pnpm-lock.yaml 仍锁定实际 npm 完整性；自动检查二者关联一致。CMake 的版本兼容声明不等于 ABI 保证，Editor 默认使用精确已验证版本。
 
@@ -156,7 +156,7 @@ Nova 干净提交 → CI 构建原生/Web 同批 SDK → SDK 自测与外部 con
 
 当前可运行入口、缓存准备方式和能力限制见 README.md，实测记录见 docs/VALIDATION.md。本文列出的模块目录包含后续拆分规划；当前 TypeScript workspace 已建立 web、scene-schema、editor-core 与 render-contract，原生核心和 UI 位于 apps/desktop/src。
 
-多实例、TRS、拾取、gizmo、层级工作流与恢复已接通；参考布局的双端基础重组已完成，已加入六种参数几何体和资产级 PBR/贴图编辑，B 批次仍未全部完成。正式 SDK 双端同批发布、远程下载和 CI 升级流程仍待实现。
+多实例、TRS、拾取、gizmo、层级工作流与恢复已接通；参考布局的双端基础重组已完成，已加入六种参数几何体和资产级 PBR/贴图编辑，B 批次仍未全部完成。正式 SDK 配对包与 GitHub Release 下载、版本锁定、显式升级已接入，见 SDK-DOWNLOAD.md；CI 自动升级提案尚未接入。
 
 ### 参数几何体与材质的当前实现
 
@@ -186,10 +186,22 @@ SDK 未提供过程网格或实例材质覆盖接口，编辑器分别以 TypeSc
 
 场景 schema v3 增加互斥的 `node.camera` / `node.light` 组件，保留现有 TRS、层级及 asset 引用布局。语义校验拒绝非法数值、非方向光类型、重复主相机或活动光标记；v1/v2 禁止这些新组件，仍可读取。创建首个组件自动标为主/活动，切换为一次历史命令；复制组件清除主/活动标记，删除后不留下悬空全局引用。几何体创建和模型展开保留已有 v3 版本。
 
-双端 `scene-objects.ts` / `SceneObjects.hpp` 将节点世界位置和祖先旋转链转换为现有 Nova DirectionalLight 与 OrbitCamera。相机通过 position、backward 和目标距离导出 yaw/pitch/target；正交高度反算 distance，曝光原样传递。朝向忽略对象缩放，位置保留完整父级矩阵。固定 45° FOV 与裁剪范围不提供假编辑入口；滚转检测失败时拒绝进入预览，编辑中产生滚转则退出到原编辑视角并保留可修复节点数据。
+双端 `scene-objects.ts` / `SceneObjects.hpp` 将节点世界位置和祖先旋转链转换为现有 Nova DirectionalLight 与 OrbitCamera。相机通过 position、backward 和目标距离导出 yaw/pitch/target；正交高度反算 distance，曝光原样传递。朝向忽略对象缩放，位置保留完整父级矩阵。垂直 FOV、近远裁剪和滚转已通过正式 Camera API 接入，投影、射线及视图立方体使用相同镜头参数。v5 保存镜头，旧相机回退 45° / 0.01–200；滚转沿用节点四元数，不重复保存角度。
 
 活动方向光的线性颜色、强度、阴影设置驱动 SDK；隐藏活动光只将直射强度设为零并关闭阴影。无活动光才回退当前会话的摄影棚设置，内置环境补光仍由 SDK 提供。多节点可存储，当前同时激活一个方向光；点光、聚光、环境节点与多光源叠加需要上游公开能力。
 
 主相机预览与编辑视角分离：预览使用场景组件，暂停视口导航/gizmo 和辅助体；退出恢复原编辑相机。节点和组件的编辑仍是文档命令，可撤销与持久化。示意辅助体由编辑器投影成 SVG / ImGui 线段并按屏幕中心标记点选，避免将灯光/相机伪装成 GLB 实例或阴影投射物。
 
 浏览器数字变换按失焦/Enter 提交，避免场景重绘中断逐字符输入。项目页提供直接下载 ZIP；文件选择器因 SecurityError/NotAllowedError 不可用时同样回退下载，用户取消仍取消。下载路径保持 dirty 与恢复副本，只有 writable.close 成功才确认保存。异步场景绘制不覆盖保存结果提示。
+
+### Release 依赖获取与锁定
+
+`sdk:install` 重放锁文件，`sdk:update <精确版本>` 显式选择同版原生/Web 配对包。候选包经 GitHub Release 元数据、清单和包内来源校验后事务安装；下载缓存位于 `.cache/nova/`，以 SHA-256 为键，支持离线重装。网页构建前验证哈希清单，原生配置检查版本与提交。JSON 头文件是编辑器独立的 vendored 依赖，不混入 Nova SDK 缓存。详见 [SDK-DOWNLOAD.md](docs/SDK-DOWNLOAD.md)。
+
+### 相机镜头与滚转 — 2026-11-16
+
+应用镜头或捕获相机升级至v5，其他命令保持版本。新增FOV/裁剪字段必须一起出现，有限数且远大于近。世界位置继承完整父变换，朝向只继承旋转链。捕获时分别求父世界矩阵的逆用于位置、父旋转链的逆用于朝向，避免非等比缩放造成剪切误判。roll从四元数提取；极点可能显示等价的Euler角，但渲染姿态不变。
+
+### 可见的 SDK 安装布局
+
+正式依赖源统一在 `deps/nova/native`、`deps/nova/web` 和 `deps/nova/package`，与下载状态 `.cache/nova` 分离。锁格式v4记录可见路径，文件哈希和发布版本不因迁目录改变。Web部署副本从正式Web包产生，完整校验与事务更新独立于上游渲染实现。CMake对旧默认根及包查找缓存做定向迁移，显式外部根不强制改写。
