@@ -50,7 +50,7 @@ import {
 } from "../tools/sdk/paths.mjs";
 import { syncWeb } from "../tools/sdk/sync-web.mjs";
 const info = {
-  version: "0.3.0",
+  version: "0.4.0",
   sourceCommit: "1".repeat(40),
   sourceDirty: false,
   uiEnabled: true,
@@ -115,7 +115,7 @@ function releaseData(m, bytes) {
     ],
   };
 }
-async function fixtures(root, v = "0.3.0") {
+async function fixtures(root, v = "0.4.0") {
   const buildInfo = { ...info, version: v };
   const files = {
     "n/sdk/include/imgui.h": "//imgui",
@@ -157,7 +157,7 @@ async function fixtures(root, v = "0.3.0") {
 test("SDK contract rejects incompatible versions, platforms, missing features and mixed module/shader provenance", () => {
   validateManifest(makeManifest());
   for (const change of [
-    (m) => (m.version = "0.4.0"),
+    (m) => (m.version = "0.5.0"),
     (m) => (m.sourceDirty = true),
     (m) => (m.native.platform = "wrong"),
     (m) => (m.native.architecture = "wrong"),
@@ -179,12 +179,12 @@ test("SDK contract rejects incompatible versions, platforms, missing features an
     assertPaired(m, info, { ...info, sourceCommit: "2".repeat(40) }),
   );
   assert.throws(() =>
-    assertPaired(m, info, info, { name: "@nova/render-web", version: "0.3.1" }),
+    assertPaired(m, info, info, { name: "@nova/render-web", version: "0.4.1" }),
   );
-  assert.equal(parseReleaseURL(releaseURL("0.3.0")), "0.3.0");
+  assert.equal(parseReleaseURL(releaseURL("0.4.0")), "0.4.0");
   for (const url of [
-    "http://github.com/Eric-Schecter/nova-render/releases/download/v0.3.0/manifest.json",
-    releaseURL("0.3.0") + "?x=1",
+    "http://github.com/Eric-Schecter/nova-render/releases/download/v0.4.0/manifest.json",
+    releaseURL("0.4.0") + "?x=1",
     "https://example.org/manifest.json",
   ])
     assert.throws(() => parseReleaseURL(url));
@@ -245,23 +245,23 @@ test("Release discovery verifies manifest/asset digests and checking never insta
     const fetcher = async (url) =>
       new Response(url.includes("/tags/") ? JSON.stringify(data) : bytes);
     assert.equal(
-      (await resolveRelease("0.3.0", root, { fetcher })).manifest.version,
-      "0.3.0",
+      (await resolveRelease("0.4.0", root, { fetcher })).manifest.version,
+      "0.4.0",
     );
     data.assets[1].digest = "sha256:" + "f".repeat(64);
-    await assert.rejects(resolveRelease("0.3.0", root, { fetcher }), /asset/);
+    await assert.rejects(resolveRelease("0.4.0", root, { fetcher }), /asset/);
     const before = await readdir(root),
-      result = await checkUpdates("0.3.0", {
+      result = await checkUpdates("0.4.0", {
         fetcher: async () =>
           new Response(
             JSON.stringify([
               data,
-              { ...data, tag_name: "v0.4.0" },
-              { ...data, tag_name: "v0.3.9", prerelease: true },
+              { ...data, tag_name: "v0.5.0" },
+              { ...data, tag_name: "v0.4.9", prerelease: true },
             ]),
           ),
       });
-    assert.equal(result.latest, "0.3.0");
+    assert.equal(result.latest, "0.4.0");
     assert.deepEqual(await readdir(root), before);
   }));
 test("SDK archive guard rejects traversal and symlinks before extracting", () => {
@@ -340,7 +340,7 @@ test("Real package extraction installs a paired Release, replays lock offline ex
   temporary(async (root) => {
     const f = await fixtures(root),
       data = releaseData(f.m, f.bytes),
-      release = { data, url: releaseURL("0.3.0") };
+      release = { data, url: releaseURL("0.4.0") };
     await mkdir(join(root, "apps/web/public"), { recursive: true });
     const lock = await installPair(root, f.bytes, f.archives, { release });
     assert.equal(lock.channel, "github-release");
@@ -363,7 +363,7 @@ test("Real package extraction installs a paired Release, replays lock offline ex
     legacy.formatVersion = 2;
     legacy.releaseId = null;
     await writeFile(join(root, "nova-sdk.lock.json"), JSON.stringify(legacy));
-    await updateRelease(root, "0.3.0", {
+    await updateRelease(root, "0.4.0", {
       fetcher: async (url) =>
         new Response(url.includes("/tags/") ? JSON.stringify(data) : f.bytes),
     });
@@ -388,7 +388,7 @@ test("Real package extraction installs a paired Release, replays lock offline ex
       badBytes = Buffer.from(JSON.stringify(badManifest)),
       badRelease = releaseData(badManifest, badBytes);
     await assert.rejects(
-      updateRelease(root, "0.3.0", {
+      updateRelease(root, "0.4.0", {
         fetcher: async (url) =>
           new Response(
             url.includes("/tags/") ? JSON.stringify(badRelease) : badBytes,
@@ -428,12 +428,12 @@ test("Real package extraction installs a paired Release, replays lock offline ex
 test("Explicit version update changes both package versions together and pins the new revision", () =>
   temporary(async (root) => {
     const old = await fixtures(join(root, "old")),
-      next = await fixtures(join(root, "next"), "0.3.1");
+      next = await fixtures(join(root, "next"), "0.4.1");
     await mkdir(join(root, "apps/web/public"), { recursive: true });
     await installPair(root, old.bytes, old.archives, {
       release: {
         data: releaseData(old.m, old.bytes),
-        url: releaseURL("0.3.0"),
+        url: releaseURL("0.4.0"),
       },
     });
     const data = releaseData(next.m, next.bytes),
@@ -447,17 +447,17 @@ test("Explicit version update changes both package versions together and pins th
                 ? next.archives.native
                 : next.archives.web,
         );
-    await updateRelease(root, "0.3.1", { fetcher });
+    await updateRelease(root, "0.4.1", { fetcher });
     const lock = await verify(root);
-    assert.equal(lock.version, "0.3.1");
-    assert.equal(lock.package.manifestUrl, releaseURL("0.3.1"));
+    assert.equal(lock.version, "0.4.1");
+    assert.equal(lock.package.manifestUrl, releaseURL("0.4.1"));
     assert.equal(
       JSON.parse(
         await readFile(
           join(root, "apps/web/public/sdk/generated/manifest.json"),
         ),
       ).version,
-      "0.3.1",
+      "0.4.1",
     );
     assert.equal(
       JSON.parse(
@@ -465,7 +465,7 @@ test("Explicit version update changes both package versions together and pins th
           join(root, "deps/nova/native/share/nova-render/build-info.json"),
         ),
       ).version,
-      "0.3.1",
+      "0.4.1",
     );
   }));
 
@@ -503,7 +503,7 @@ test("CLI restores a clean checkout from only its lock and cached artifacts with
       installed = join(root, "installed");
     await mkdir(join(installed, "apps/web/public"), { recursive: true });
     await installPair(installed, f.bytes, f.archives, {
-      release: { data, url: releaseURL("0.3.0") },
+      release: { data, url: releaseURL("0.4.0") },
     });
     const bytes = await readFile(join(installed, "nova-sdk.lock.json"));
     const clean = join(root, "clean");
@@ -536,7 +536,7 @@ test("Partial downloads resume across interrupted transfers and never accept unc
       path = join(root, "partial/package.part");
     let attempts = 0;
     const result = await resumableBytes(
-      "https://github.com/Eric-Schecter/nova-render/releases/download/v0.3.0/native.zip",
+      "https://github.com/Eric-Schecter/nova-render/releases/download/v0.4.0/native.zip",
       path,
       sha256(bytes),
       {
@@ -585,7 +585,7 @@ function oldLayout(lock) {
 test("Legacy path migration keeps every artifact pin and uses the previous offline cache", () =>
   temporary(async (root) => {
     const f = await fixtures(root),
-      release = { data: releaseData(f.m, f.bytes), url: releaseURL("0.3.0") };
+      release = { data: releaseData(f.m, f.bytes), url: releaseURL("0.4.0") };
     const modern = await installPair(root, f.bytes, f.archives, { release }),
       legacy = oldLayout(modern);
     await writeFile(join(root, "nova-sdk.lock.json"), JSON.stringify(legacy));
@@ -613,7 +613,7 @@ test("Web deployment repairs from visible packages, keeps the lock unchanged and
   temporary(async (root) => {
     const f = await fixtures(root);
     await installPair(root, f.bytes, f.archives, {
-      release: { data: releaseData(f.m, f.bytes), url: releaseURL("0.3.0") },
+      release: { data: releaseData(f.m, f.bytes), url: releaseURL("0.4.0") },
     });
     const before = await readFile(join(root, "nova-sdk.lock.json"));
     await writeFile(

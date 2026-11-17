@@ -35,7 +35,7 @@
 ## 场景灯光与相机
 
 - 添加菜单的“方向光 / Directional light”和“相机 / Camera”创建真实场景节点；首个相机自动成为主相机，首个方向光自动成为场景光源。节点支持树中重命名、隐藏/锁定、父子层级、复制、删除、gizmo 与撤销。复制节点不会抢占原有主相机或场景光源。
-- 方向光对象页编辑局部方位/俯仰、线性颜色（界面输入 sRGB 十六进制）、强度 0–100、阴影开关及柔和度 0–4，点击“应用节点设置 / Apply node settings”提交。位置只影响辅助图标，旋转影响照射方向；缩放不改变光照。Metal / WebGPU 光栅最多同时使用 16 盏方向光、点光或聚光；每灯独立启用。点光和聚光支持范围，聚光支持内外半锥角；点光/聚光暂不支持阴影。关闭或隐藏全部场景灯时不会补回默认直射灯，环境照明独立保留。
+- 方向光对象页编辑局部方位/俯仰、线性颜色（界面输入 sRGB 十六进制）、强度 0–100、阴影开关及柔和度 0–4，点击“应用节点设置 / Apply node settings”提交。方向光位置只影响辅助图标；点光和聚光位置影响照明，聚光沿局部 -Z 照射。缩放不改变灯光范围。Metal / Vulkan / DX12 / WebGPU 光栅最多同时使用 16 盏方向光、点光或聚光；每灯独立启用。点光和聚光支持范围，聚光支持内外半锥角；点光/聚光暂不支持阴影。关闭或隐藏全部场景灯时不会补回默认直射灯，环境照明独立保留。
 - 相机对象页支持透视/正交、目标距离 0.05–100、正交视野高度 0.05–80、曝光 0.01–16，以及节点位置和朝向。“从编辑视角更新相机 / Capture editor view”记录当前编辑视角；“设为主相机 / Set main camera”切换项目的主相机。
 - 点击“预览主相机 / Preview main camera”或视图菜单进入主相机画面；此时辅助线、gizmo 和相机导航停用，编辑器原视角保留。切换其他主相机或修改其参数会更新画面；点击“返回编辑视角 / Editor view”恢复原视角。打开、恢复项目保留主相机标记，默认使用编辑视角，按需进入预览。
 - 视口显示可点选的相机示意视锥和方向光图标，可与其他节点整体变换；F 聚焦节点辅助体。辅助图形不作为网格资源保存或参与阴影。相机支持局部方位、俯仰、滚转以及完整 XYZ 变换；滚转沿用节点四元数保存，父节点旋转会影响最终朝向。视锥辅助体是示意，不表示真实远裁剪范围。
@@ -122,7 +122,7 @@ pnpm dev:web
 
 ## SDK 依赖与分工
 
-渲染由 nova-render 0.3 的 native/Web 配对包提供；编辑器负责项目、交互、保存和资源版本。已替换多实例/原始空间、完整相机与视口、BVH 拾取、多材质槽、GPU 场景阴影、雾和环境清除，旧私有渲染补丁已退役。详细边界和验收见 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md)。
+渲染由 nova-render 0.4 的 native/Web 配对包提供；编辑器负责项目、交互、保存和资源版本。已替换多实例/原始空间、完整相机与视口、BVH 拾取、多材质槽、GPU 场景阴影、雾和环境清除，旧私有渲染补丁已退役。详细边界和验收见 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md)。
 
 ```sh
 pnpm sdk:install
@@ -131,7 +131,7 @@ pnpm sdk:verify
 pnpm sdk:update --check
 ```
 
-当前包来自 [GitHub Release v0.3.0](https://github.com/Eric-Schecter/nova-render/releases/tag/v0.3.0)，可通过上方命令直接下载安装。安装器校验包 SHA-256、平台/架构和配对来源；`deps/nova/` 为可重建安装目录，网页 `public/sdk/` 为部署副本。材质面板调用正式运行时 API，同时保留 GLB 版本、撤销和项目恢复。nlohmann/json 3.12.0 是编辑器自己的序列化依赖，头文件与许可随仓库保存在 `third_party/nlohmann-json/`，不再依赖未跟踪的 `.sdk/support`。
+当前包来自 [GitHub Release v0.4.0](https://github.com/Eric-Schecter/nova-render/releases/tag/v0.4.0)，可通过上方命令直接下载安装。安装器校验包 SHA-256、平台/架构和配对来源；`deps/nova/` 为可重建安装目录，网页 `public/sdk/` 为部署副本。材质面板调用正式运行时 API，同时保留 GLB 版本、撤销和项目恢复。nlohmann/json 3.12.0 是编辑器自己的序列化依赖，头文件与许可随仓库保存在 `third_party/nlohmann-json/`，不再依赖未跟踪的 `.sdk/support`。
 
 默认安装严格恢复锁文件，升级需显式执行 `pnpm sdk:update <精确版本>`；支持缓存、`pnpm sdk:install --offline`、配对来源校验与失败回滚。详见 [下载、锁定和更新](docs/SDK-DOWNLOAD.md)。
 
@@ -199,3 +199,5 @@ node tools/fixtures/units.mjs
 ./build/nova_editor.app/Contents/MacOS/nova_editor --project "$PWD/output/units-study/project.json"
 MTL_DEBUG_LAYER=1 ./build/source_space_test "$PWD/tests/fixtures"
 ```
+
+原生可用 `--api auto|metal|vulkan|dx12` 选择后端，例如 `build/nova_editor.app/Contents/MacOS/nova_editor --api vulkan --project /path/to/project.json`。0.4.0 已验证 macOS Metal/Vulkan 与 WebGPU 多灯，DX12 仅完成共享 HLSL 的 DXIL 编译，Windows 实机验证暂缓，未发布新版 Windows SDK。

@@ -52,3 +52,7 @@ pnpm build:web
 ## 0.3.0 scene lights
 
 Formal `SetLights` / `setLights` and capability queries now own simultaneous directional/point/spot illumination, shared HLSL attenuation, cone falloff and per-directional-light BVH shadows on Metal/WebGPU raster. Point/spot shadows are explicitly unsupported; other native backends and ray tracing keep the legacy directional API. The editor owns independent node flags, hierarchy transforms, range/cone helpers, UI, scene v6 migration, history and serialization; it does not implement or patch lighting shaders. Exact package provenance is pinned in `nova-sdk.lock.json`.
+
+## 0.4.0 backend extension
+
+The same scene-light API now accepts Metal, Vulkan and DX12 raster backends. WebGPU semantics remain unchanged. Metal/Vulkan runtime and shader DXIL compilation are verified; Windows runtime validation is deferred and this release contains no Windows SDK. Native editor `--api` selects the backend without introducing editor-owned rendering. Directional BVH shadows remain supported; point/spot shadows and ray-tracing light collections remain unsupported.

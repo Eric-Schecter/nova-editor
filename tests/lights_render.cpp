@@ -4,7 +4,7 @@ int main(int argc, char** argv)
 {
     try
     {
-        if (argc != 3)
+        if (argc != 3 && argc != 4)
             throw std::runtime_error("Expected project and helper resources");
         auto   project = std::filesystem::absolute(argv[1]);
         Editor e;
@@ -15,10 +15,15 @@ int main(int argc, char** argv)
         e.saved = e.history.scene;
         std::snprintf(e.projectPath, sizeof(e.projectPath), "%s", project.string().c_str());
         render::WindowConfig config;
-        config.width        = 1440;
-        config.height       = 900;
-        config.title        = "Nova multi-light editor validation";
-        config.renderer.api = render::GraphicsAPI::Metal;
+        config.width          = 1440;
+        config.height         = 900;
+        config.title          = "Nova multi-light editor validation";
+        const std::string api = argc == 4 ? argv[3] : "metal";
+        if (api != "metal" && api != "vulkan" && api != "dx12")
+            throw std::runtime_error("Invalid test API");
+        config.renderer.api = api == "vulkan" ? render::GraphicsAPI::Vulkan
+                              : api == "dx12" ? render::GraphicsAPI::D3D12
+                                              : render::GraphicsAPI::Metal;
         editor::RenderWindow window(config);
         e.window = &window;
         window.SetLighting(render::LightingMode::PBR);
@@ -84,7 +89,8 @@ int main(int argc, char** argv)
         window.WaitIdle();
         if (frames != 120 || window.ValidationErrorCount() || e.status.find("error:") != std::string::npos)
             throw std::runtime_error("Native lighting frames failed");
-        std::cout << "PASS Metal editor: 120 frames, three simultaneous light types, point enable/undo, spot cone "
+        std::cout << "PASS " << api
+                  << " editor: 120 frames, three simultaneous light types, point enable/undo, spot cone "
                      "edits, native UI and zero GPU errors\n";
         return 0;
     }

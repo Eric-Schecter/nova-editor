@@ -267,3 +267,12 @@ MTL_DEBUG_LAYER=1 ./build/editor_layout_render_test resources/viewport tests/fix
 - Chrome WebGPU 实际创建方向光、点光、聚光，逐灯开关改变画面，点光/聚光阴影选项禁用，编辑后撤销与 ZIP 保存重开通过。截图 `output/lights-browser/editor.png`。
 - Metal 原生构建成功，并打开网页保存的同一三灯项目，在验证层开启时完成 120 帧原生 UI 集成测试（点光开关、撤销、聚光锥角修改），GPU 错误为 0；渲染实现的六灯逐盏/同时贡献由 nova-render 共享 HLSL 像素测试验证。
 - 场景 v6 允许最多 16 盏独立灯；旧格式原 inactive 灯保持关闭。点光/聚光阴影明确不支持；Vulkan/DX12/光追仍使用旧单方向光，编辑器本轮面向 Metal/WebGPU 光栅。
+
+## 2026-11-17：0.4.0 跨后端灯光
+
+- 已从正式 GitHub Release 更新并锁定 0.4.0（干净源提交 `e3503a02808531c0e43ec60e24b9aae5b607dfc8`），205 个安装文件校验通过；未修改包内源码或 shader。
+- 77 项 JS 测试、10 项原生 CTest 全部通过。SDK 安装器兼容策略显式升级为稳定 0.4.x。
+- `lights_render_test <project.json> <viewport-resources> vulkan|metal` 分别完成 120 帧实际 UI 集成，验证同时三种灯、点光独立开关/撤销、聚光锥角修改，GPU 错误为 0。
+- 实际编辑器 `--api vulkan --project ... --frames 12` 正常渲染，验证错误 0；默认 `--api auto` 保留原后端优先级。CLI 也接受 metal/dx12，但仍受当前平台是否支持该 API 的限制。
+- Chrome WebGPU 灯光创建、开关引起的像素变化、阴影选项禁用、撤销和 ZIP 保存重开通过。
+- 上游共享 HLSL 的 DX12 顶点/片元已编译为 DXIL；用户明确将 Windows 验证延期，因此未进行 DX12/Windows Vulkan 实机验证，也未发布 0.4.0 Windows SDK。点光/聚光阴影与光追模式灯光集合仍不支持，能力查询和界面明确报告。

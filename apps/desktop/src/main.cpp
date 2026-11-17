@@ -2008,6 +2008,7 @@ int main(int argc, char** argv)
     {
         int         limit = 0;
         std::string model;
+        render::GraphicsAPI api = render::GraphicsAPI::Auto;
         Editor      editor;
         auto        executableDir = std::filesystem::absolute(argv[0]).parent_path();
 #ifdef __APPLE__
@@ -2018,7 +2019,21 @@ int main(int argc, char** argv)
         for (int i = 1; i < argc; ++i)
         {
             std::string arg = argv[i];
-            if (arg == "--frames" && i + 1 < argc)
+            if (arg == "--api" && i + 1 < argc)
+            {
+                const std::string name = argv[++i];
+                if (name == "auto")
+                    api = render::GraphicsAPI::Auto;
+                else if (name == "metal")
+                    api = render::GraphicsAPI::Metal;
+                else if (name == "vulkan")
+                    api = render::GraphicsAPI::Vulkan;
+                else if (name == "dx12")
+                    api = render::GraphicsAPI::D3D12;
+                else
+                    throw std::runtime_error("Unknown graphics API: " + name);
+            }
+            else if (arg == "--frames" && i + 1 < argc)
                 limit = std::stoi(argv[++i]);
             else if (arg == "--model" && i + 1 < argc)
                 model = argv[++i];
@@ -2028,7 +2043,8 @@ int main(int argc, char** argv)
                 std::snprintf(editor.projectPath, sizeof(editor.projectPath), "%s", argv[++i]);
             else
                 throw std::runtime_error(
-                  "Usage: nova_editor [--frames N] [--model file.glb] [--project project.json] [--recovery-dir "
+                  "Usage: nova_editor [--api auto|metal|vulkan|dx12] [--frames N] [--model file.glb] [--project "
+                  "project.json] [--recovery-dir "
                   "directory]");
         }
         // GLFW on macOS may change cwd to the app resource directory during initialization.
@@ -2040,6 +2056,7 @@ int main(int argc, char** argv)
         config.width  = 1440;
         config.height = 900;
         config.title  = "Nova Editor - Native";
+        config.renderer.api = api;
         editor::RenderWindow window(config);
         editor.window = &window;
         window.SetClearColor({.6f, .6f, .6f, 1});
