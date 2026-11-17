@@ -6,19 +6,29 @@
     "package": "deps/nova/package",
     "webPublic": "apps/web/public/sdk"
   },
-  "channel": "local-package",
-  "releaseId": null,
-  "sourceCommit": "f4853b00ad43c96dcce7d162f5be9add85bc5db2",
+  "channel": "github-release",
+  "releaseId": 448544277,
+  "release": {
+    "repository": "Eric-Schecter/nova-render",
+    "tag": "v0.8.0",
+    "assetIds": {
+      "manifest.json": 758811486,
+      "nova-render-sdk-0.8.0-darwin-arm64-appleclang-release.zip": 758811451,
+      "nova-render-web-0.8.0.tgz": 758811446
+    }
+  },
+  "sourceCommit": "3fa5679c26fd12b28e078ca522779cce7a2a5dc8",
   "sourceDirty": false,
   "target": "darwin-arm64",
   "configuration": "Release",
   "version": "0.8.0",
   "extensions": [],
   "package": {
-    "manifestSha256": "16b9671bcf15caca3537412cf5c2f880d79733428f03736247f9e90270f9d00e",
+    "manifestUrl": "https://github.com/Eric-Schecter/nova-render/releases/download/v0.8.0/manifest.json",
+    "manifestSha256": "5063db11519c6745b2a97d1e01bc6b754d1e47dfa5455cdf903a3cc6c23a6126",
     "native": {
       "file": "nova-render-sdk-0.8.0-darwin-arm64-appleclang-release.zip",
-      "sha256": "366f5a7a763a662bbb8d4333266dab55be1a82c4599f8c80839317b097afe907",
+      "sha256": "d75640e2bf6b73a4994ec184cdad22b8498138456692e9e31ee7ef33d6783dd1",
       "platform": "Darwin",
       "architecture": "arm64",
       "configuration": "Release",
@@ -26,7 +36,7 @@
     },
     "web": {
       "file": "nova-render-web-0.8.0.tgz",
-      "sha256": "d3b37bb6618c18cb09d0f519f6bebb8ec05d087ccc07ffc36854cc01e1451933",
+      "sha256": "8518d0310e58a8c5282a4bc98ce5b55b79f80d5ffec0a7471dcf2a3c09f3a4e7",
       "packageName": "@nova/render-web"
     }
   },
@@ -121,9 +131,9 @@
     "deps/nova/native/lib/cmake/Nova/NovaTargets.cmake": "965033ba6ca84ae2b5a2879716cf68dbc711fa9e950d028301f795f17d8bca53",
     "deps/nova/native/lib/libglfw3.a": "44a89ad76c13db9236ed1bb6c5eaa17ed7a4e0354bac6dbb831c338c3b0b10eb",
     "deps/nova/native/lib/libimgui.a": "67b54f92d11f2c7189fedc30e6886eaa04106d488f979f9f8e725cf06cdd5508",
-    "deps/nova/native/lib/libnova_render.a": "f3db01820c9ed80a94ec74a1765f402b2ebe65d620ef563581ed62112044074e",
+    "deps/nova/native/lib/libnova_render.a": "cf79c5c9b8ad3131fdd2156f9f37d07aa9f5840bddea001ebe4414fd55fd13b5",
     "deps/nova/native/lib/libvolk.a": "55399f6523ff76275d7e7d1d22f281cfff6a08bc88268464c72c1ad717e44d98",
-    "deps/nova/native/README.md": "c2127f652c1aa75a2fe6e69b80f0051e047c045e43ab956eb0645e394fd43174",
+    "deps/nova/native/README.md": "ee01b11d059e1778443cc23b10eac018dd7d791cd227ba0031dcba2cf7f6e127",
     "deps/nova/native/share/glfw3/copyright": "149704059b5d0bf551637e50042dd4de9c2cae921021f6636298911e3a5f9462",
     "deps/nova/native/share/glfw3/glfw3Config.cmake": "0d266f3f8b0ae324404dc36a8ca8af01b5bf58d15b1ce806e9e318e895e9b755",
     "deps/nova/native/share/glfw3/glfw3ConfigVersion.cmake": "7762047cf91b3e88465a0ad02cf724afdbd32aac4f51414ed5983155e20ac1ad",
@@ -146,7 +156,7 @@
     "deps/nova/native/share/Nova/licenses/stb/copyright": "bebfe904b14301657e4e5d655c811d51fd31b97c455b9cc2d8600d6bac6cff63",
     "deps/nova/native/share/Nova/licenses/tinygltf/copyright": "2ae461f8c8b78ed77c14e9c3b7e353ba277e44cb3dbfb5a6d380f76f2ae081a2",
     "deps/nova/native/share/Nova/sdk.json": "807c4f9adbf36962d9a9f8df33d48df0679fd2df7738c7957fe9d8ed42afe3cd",
-    "deps/nova/native/share/nova-render/build-info.json": "f53553a8ba554281aa8abf591de6aa82acaec5c9ee6b3d305723fe11489788ad",
+    "deps/nova/native/share/nova-render/build-info.json": "c06a186c3caec9877a96af8b110d20fe5e4c02492b7249499b8745b8c1406467",
     "deps/nova/native/share/volk/copyright": "33c831f76b79501665e66c23ac8f876020457c216d44526a8f747da897999b35",
     "deps/nova/native/share/volk/usage": "1f3ba1f2eef0aa7e80c38a73f7f46faa4579d3d0e14878332fd6be74ced37587",
     "deps/nova/native/share/volk/vcpkg_abi_info.txt": "68238180102b08d61ed0175331e91283342465906d63ecff6c25b69ddafa8327",
@@ -160,7 +170,7 @@
     "deps/nova/native/share/vulkan-headers/usage": "c2e297c1b0e24fc20d308cf07a77dbeb3ab6e15f970ce95caecf500fecd6aa16",
     "deps/nova/native/share/vulkan-headers/vcpkg_abi_info.txt": "1efabae37d0368a8491d74717ffbfeca526f2a05affef6b423c961e55889f2aa",
     "deps/nova/native/share/vulkan-headers/vcpkg.spdx.json": "703b5fa6ebfe68bf16ce3e937ca9a7161a146c89d96c866cc0b8eb9e4816c9a2",
-    "deps/nova/package/manifest.json": "16b9671bcf15caca3537412cf5c2f880d79733428f03736247f9e90270f9d00e",
+    "deps/nova/package/manifest.json": "5063db11519c6745b2a97d1e01bc6b754d1e47dfa5455cdf903a3cc6c23a6126",
     "deps/nova/package/web-package.json": "6919e58cf2b953de249fe6ce058e94fe1b2b2e395db640dbbc084c7e8cccdb9f",
     "deps/nova/web/generated/aa-0.json": "cd44c07048d0b0db5ccbd494cb5025d0e2d54b42e6f2cb00707edff519ed8967",
     "deps/nova/web/generated/aa-1.json": "475785fb2b276f4e7b5aea0390e0b3630e6ecea5d27cac1491730ff5ac6af711",
@@ -197,7 +207,7 @@
     "deps/nova/web/generated/ao-prepare.json": "088325da4c5bd411b5c62aa2bfd1599081f2a7d88ccac1ec0244560513a91f82",
     "deps/nova/web/generated/ao-pyramid.json": "aa7573ea350533f2d4a72771f7039ff9b2382f728e691a97190f372e4a4dab61",
     "deps/nova/web/generated/denoise.json": "389ca1e37b26dd9b46ed5b79d45e0bb1dca21eb8064237e675ddaa4841e46067",
-    "deps/nova/web/generated/manifest.json": "e848207db84fa8ff128f83b90d12ee5b247fc6c0e849b797b41c2aa07a46cf2f",
+    "deps/nova/web/generated/manifest.json": "98ac94e3dffcb1e38411f6c2e9efcae5deb95a7228b95ef71570be65f3bd3ab6",
     "deps/nova/web/generated/mlt-bootstrap.json": "5c08cb71a978c08167b9c4f9e65066c4ca4a95d4ef2fabc790a68d3e4b9b129a",
     "deps/nova/web/generated/mlt-mutate.json": "e8a077f6bda51b5fd17f43d043c48e06ffe95b519b0c69c0249730d2ed79ec3a",
     "deps/nova/web/generated/mlt-reduce.json": "12a7c7c58530947336a40a99a71ed85fe95434ad4a5f5c3d81491f5dcc0b4938",

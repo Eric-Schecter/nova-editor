@@ -279,7 +279,10 @@ export async function updateRelease(root, input, { fetcher = fetch } = {}) {
       join(root, cachePath),
       { fetcher },
     );
-    if (lock?.version === release.version) {
+    if (
+      lock?.version === release.version &&
+      lock.channel === "github-release"
+    ) {
       assertLockedManifest(lock, release.bytes, release.manifest);
       if (
         lock.formatVersion >= 3 &&

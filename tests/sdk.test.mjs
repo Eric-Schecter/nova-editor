@@ -115,8 +115,8 @@ function releaseData(m, bytes) {
     ],
   };
 }
-async function fixtures(root, v = "0.8.0") {
-  const buildInfo = { ...info, version: v };
+async function fixtures(root, v = "0.8.0", sourceCommit = info.sourceCommit) {
+  const buildInfo = { ...info, version: v, sourceCommit };
   const files = {
     "n/sdk/include/imgui.h": "//imgui",
     "n/sdk/include/render/Renderer.hpp": "//Renderer",
@@ -150,6 +150,7 @@ async function fixtures(root, v = "0.8.0") {
     },
     m = makeManifest();
   m.version = v;
+  m.sourceCommit = sourceCommit;
   for (const key of ["native", "web"]) m[key].sha256 = sha256(archives[key]);
   return { m, bytes: Buffer.from(JSON.stringify(m)), archives };
 }
@@ -667,4 +668,34 @@ test("Interrupted legacy installation is recovered before migrating to the visib
     await assert.rejects(access(join(root, ".sdk/install-state.json")), {
       code: "ENOENT",
     });
+  }));
+
+test("A local development pair can advance to the official same-version release; published pins remain immutable", () =>
+  temporary(async (root) => {
+    const local = await fixtures(join(root, "local"), "0.8.0", "1".repeat(40)),
+      published = await fixtures(
+        join(root, "published"),
+        "0.8.0",
+        "2".repeat(40),
+      );
+    await mkdir(join(root, "apps/web/public"), { recursive: true });
+    await installPair(root, local.bytes, local.archives);
+    let selected = published;
+    const fetcher = async (url) =>
+      new Response(
+        url.includes("/tags/")
+          ? JSON.stringify(releaseData(selected.m, selected.bytes))
+          : url.endsWith("manifest.json")
+            ? selected.bytes
+            : url.endsWith("native.zip")
+              ? selected.archives.native
+              : selected.archives.web,
+      );
+    await updateRelease(root, "0.8.0", { fetcher });
+    const lock = await verify(root);
+    assert.equal(lock.channel, "github-release");
+    assert.equal(lock.sourceCommit, "2".repeat(40));
+    selected = local;
+    await assert.rejects(updateRelease(root, "0.8.0", { fetcher }));
+    assert.equal((await verify(root)).sourceCommit, "2".repeat(40));
   }));

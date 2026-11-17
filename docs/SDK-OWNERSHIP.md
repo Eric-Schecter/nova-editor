@@ -65,6 +65,10 @@ The formal SDK owns finite-distance point/spot BVH visibility, hard/soft filteri
 
 The SDK owns static instance-to-world ray snapshots, material atlases, hardware/compute traversal, analytic light NEE and accumulation reset. Vulkan prefers hardware queries and reports software traversal when compute BVH is used. The editor only selects mode and forwards existing scene/light/material/camera APIs. Mode is viewport state, not a serialized project component. Collection lights do not emit BDPT source subpaths or photons; the formal lighting capability flags report this explicitly. Windows runtime remains deferred.
 
+## 0.8.0 alpha materials
+
+The editor now consumes the official paired 0.8.0 Release. The SDK owns OPAQUE/MASK/weighted OIT BLEND rendering, alpha-tested scene shadows, per-material sidedness and model Deferred/G-buffer APIs. Both inspectors forward material fields through the formal SDK; GLB asset versions, undo/redo and project archives remain editor-owned. See [alpha integration and verified limits](SDK-ALPHA-INTEGRATION.md).
+
 ## 0.7.0 local source transport ownership
 
 Nova Render 0.7.0 owns point/spot BDPT light subpaths and photon emission. The editor consumes the paired release without shader patches, presents integrator controls and continues to own project persistence and UI.
