@@ -68,3 +68,5 @@ The SDK owns static instance-to-world ray snapshots, material atlases, hardware/
 ## 0.7.0 local source transport ownership
 
 Nova Render 0.7.0 owns point/spot BDPT light subpaths and photon emission. The editor consumes the paired release without shader patches, presents integrator controls and continues to own project persistence and UI.
+
+Nova Render 0.7.1 owns the dielectric transmission/visibility and radiance-linearity corrections. The editor consumes the official paired patch through the unchanged 0.7.x API.
