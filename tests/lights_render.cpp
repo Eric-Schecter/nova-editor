@@ -81,6 +81,17 @@ int main(int argc, char** argv)
               frames == 25
               && (window.GetRenderMode() != render::RenderMode::RayTracing || window.GetAccumulatedSamples() == 0))
                 throw std::runtime_error("Editor failed to enter ray mode");
+            if (frames == 28)
+            {
+                e.setIntegrator(render::PathIntegrator::Bidirectional);
+                const auto sourceCaps = window.GetLightingCapabilities();
+                if (!sourceCaps.collectionLightSubpaths || sourceCaps.sourceLightTypes.size() != 2)
+                    throw std::runtime_error("Missing BDPT local source support");
+            }
+            if (frames == 58)
+                e.setIntegrator(render::PathIntegrator::PhotonMapping);
+            if (frames == 65 && window.GetRayTracing().integrator != render::PathIntegrator::PhotonMapping)
+                throw std::runtime_error("Photon mode not retained");
             if (frames == 30)
                 e.change([&](auto& s) { editor::setPrimary(s, point, "light", false); });
             if (frames == 40)

@@ -12,6 +12,7 @@ export const requiredFeatures = [
   "scene-lights",
   "ray-scene-instances",
   "ray-scene-lights",
+  "ray-local-source-emission",
 ];
 export const sha256 = (bytes) =>
   createHash("sha256").update(bytes).digest("hex");
@@ -19,9 +20,9 @@ export const isHash = (value) =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 export function version(value) {
   const v = String(value).replace(/^v/, "");
-  if (!/^0\.6\.(0|[1-9]\d*)$/.test(v))
+  if (!/^0\.7\.(0|[1-9]\d*)$/.test(v))
     throw Error(
-      "Editor supports stable Nova 0.6.x; specify an exact version, for example 0.6.0",
+      "Editor supports stable Nova 0.7.x; specify an exact version, for example 0.7.0",
     );
   return v;
 }
@@ -31,7 +32,7 @@ export function releaseURL(v) {
 export function parseReleaseURL(input) {
   const url = new URL(input),
     match = url.pathname.match(
-      /^\/Eric-Schecter\/nova-render\/releases\/download\/v(0\.6\.(?:0|[1-9]\d*))\/manifest\.json$/,
+      /^\/Eric-Schecter\/nova-render\/releases\/download\/v(0\.7\.(?:0|[1-9]\d*))\/manifest\.json$/,
     );
   if (
     url.protocol !== "https:" ||
@@ -69,7 +70,7 @@ export function validateManifest(
     !requiredFeatures.every((f) => m.features.includes(f))
   )
     throw Error(
-      "A clean paired Nova 0.6.x manifest with all editor features is required",
+      "A clean paired Nova 0.7.x manifest with all editor features is required",
     );
   if (expectedVersion && m.version !== expectedVersion)
     throw Error("Release tag and manifest version mismatch");

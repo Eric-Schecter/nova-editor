@@ -73,6 +73,12 @@ struct Editor
         renderMode = value;
         sceneViewKey.clear();
     }
+    void setIntegrator(render::PathIntegrator value)
+    {
+        auto settings       = window->GetRayTracing();
+        settings.integrator = value;
+        window->SetRayTracing(settings);
+    }
     editor::StudioSettings studio;
     editor::Json           saved = editor::emptyScene();
     std::string            selected, status = "Ready", preview;
@@ -1772,7 +1778,7 @@ struct Editor
           [this](const std::string& error) { status = error; },
           [this](editor::OrbitCamera camera) { action([this, camera] { window->SetCamera(camera); }); });
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {5, 4});
-        panel("##ViewportOptions", {std::max(8.f, center - 330), top + 8}, {322, 36}, false);
+        panel("##ViewportOptions", {std::max(8.f, center - 458), top + 8}, {450, 36}, false);
         ImGui::BeginDisabled(tools.drag.has_value());
         if (ImGui::Button(
               mainPreview                        ? "Editor view"
@@ -1796,6 +1802,14 @@ struct Editor
                                                            : render::RenderMode::Raster);
             });
         ImGui::SameLine();
+        if (renderMode == render::RenderMode::RayTracing)
+        {
+            int integrator = int(window->GetRayTracing().integrator);
+            ImGui::SetNextItemWidth(120);
+            if (ImGui::Combo("##RayIntegrator", &integrator, "PT\0BDPT\0Photon mapping\0"))
+                action([this, integrator] { setIntegrator(render::PathIntegrator(integrator)); });
+            ImGui::SameLine();
+        }
         ImGui::BeginDisabled(renderMode == render::RenderMode::RayTracing);
         if (ImGui::Button(renderMode == render::RenderMode::RayTracing ? "PBR" : lit ? "Lit" : "Unlit"))
         {

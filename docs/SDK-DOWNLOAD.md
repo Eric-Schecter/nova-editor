@@ -1,6 +1,6 @@
 # GitHub Release 配对依赖
 
-默认来源为 `Eric-Schecter/nova-render` 的正式 GitHub Release。原生库/头文件、Web 模块和 shader 必须使用同一版本、同一干净源码提交，不能单独更新其中一端。当前兼容范围为稳定的 **0.6.x**；0.7 或更高版本须先审核适配后放宽策略。
+默认来源为 `Eric-Schecter/nova-render` 的正式 GitHub Release。原生库/头文件、Web 模块和 shader 必须使用同一版本、同一干净源码提交，不能单独更新其中一端。当前兼容范围为稳定的 **0.7.x**；0.8 或更高版本须先审核适配后放宽策略。
 
 ## 安装与锁定
 
@@ -16,10 +16,10 @@ pnpm sdk:verify
 首次迁移旧锁文件或显式选择版本：
 
 ```sh
-pnpm sdk:update 0.6.0
+pnpm sdk:update 0.7.0
 ```
 
-也兼容 `sdk:install 0.6.0` 或正式的版本化 `manifest.json` URL 来建立首次锁；已有新格式锁时，`sdk:install <不同版本>` 会要求使用 `sdk:update`。本地配对 manifest 安装仍用于离线开发联调，会明确记录为 `local-package`，不能冒充 Release 安装。
+也兼容 `sdk:install 0.7.0` 或正式的版本化 `manifest.json` URL 来建立首次锁；已有新格式锁时，`sdk:install <不同版本>` 会要求使用 `sdk:update`。本地配对 manifest 安装仍用于离线开发联调，会明确记录为 `local-package`，不能冒充 Release 安装。
 
 ## 检查与更新
 
@@ -50,7 +50,7 @@ pnpm sdk:install --offline
 
 ## 平台与其他依赖
 
-目前 0.6.0 Release 的原生包只提供 **macOS ARM64 Release、启用 UI**。Windows/Linux 不会自动降级借用 0.1.0，也不会让网页端悄悄使用另一版本；缺少匹配包时直接说明不支持。未来上游提供新的平台清单/包布局后，再扩展选择逻辑并分别验证 ABI/Runtime。
+目前 0.7.0 Release 的原生包只提供 **macOS ARM64 Release、启用 UI**。Windows/Linux 不会自动降级借用 0.1.0，也不会让网页端悄悄使用另一版本；缺少匹配包时直接说明不支持。未来上游提供新的平台清单/包布局后，再扩展选择逻辑并分别验证 ABI/Runtime。
 
 SDK 缓存是可删除重建的渲染依赖。编辑器自己的 nlohmann/json 3.12.0 头文件及 MIT 许可位于 `third_party/nlohmann-json/`，不依赖 `.sdk/support` 或相邻 nova-v2/vcpkg 工作区；模型和环境贴图仍由编辑器项目管理。
 

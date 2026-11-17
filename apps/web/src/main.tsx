@@ -267,6 +267,7 @@ function App() {
     [gridSnap, setGridSnap] = useState(true),
     [lit, setLit] = useState(true),
     [renderMode, setRenderMode] = useState<"raster" | "ray-tracing">("raster"),
+    [integrator, setIntegrator] = useState("path"),
     [light, setLight] = useState<LightingSettings>(defaultLighting),
     [sidebarTab, setSidebarTab] = useState<"scene" | "project" | "settings">(
       "scene",
@@ -358,6 +359,17 @@ function App() {
       }
       raw.setRenderMode(mode);
       setRenderMode(mode);
+      void raw.drawFrame().catch((e) => setStatus(String(e)));
+    } catch (e) {
+      setStatus(String(e));
+    }
+  }
+  function changeIntegrator(value: string) {
+    try {
+      const raw = renderer.current;
+      if (!raw) return;
+      raw.setRayTracing({ ...raw.getRayTracing(), integrator: value });
+      setIntegrator(value);
       void raw.drawFrame().catch((e) => setStatus(String(e)));
     } catch (e) {
       setStatus(String(e));
@@ -1614,6 +1626,19 @@ function App() {
                 <option value="raster">光栅</option>
                 <option value="ray-tracing">光追</option>
               </select>
+              {renderMode === "ray-tracing" && (
+                <select
+                  className="projection-switch"
+                  aria-label="光追积分器"
+                  value={integrator}
+                  disabled={busy || history.isPreviewing}
+                  onChange={(e) => changeIntegrator(e.target.value)}
+                >
+                  <option value="path">PT</option>
+                  <option value="bidirectional">BDPT</option>
+                  <option value="photon-mapping">Photon mapping</option>
+                </select>
+              )}
               <button
                 className="projection-switch"
                 aria-label="光照设置"

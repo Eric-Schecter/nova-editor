@@ -1,6 +1,6 @@
 # 点光、聚光与多灯接口需求
 
-状态：2026-11-17，Nova Render 0.6.0 已正式发布，编辑器已接入 Metal / Vulkan / DX12 / WebGPU 光栅的灯光集合。Metal、Mac Vulkan、WebGPU 已验证；DX12 实机按用户要求延期，0.6.0 不包含 Windows SDK。
+状态：2026-11-17，Nova Render 0.7.0 已正式发布，编辑器已接入 Metal / Vulkan / DX12 / WebGPU 光栅的灯光集合。Metal、Mac Vulkan、WebGPU 已验证；DX12 实机按用户要求延期，0.7.0 不包含 Windows SDK。
 
 正式契约见 https://eric-schecter.github.io/nova-render/api/lights 。最多 16 盏灯，三类灯均支持阴影，要求静态不透明场景与全局开关。下文保留需求说明作为验收依据。场景格式 v6 中 `light.active` 表示每灯独立启用；v1–v5 的原非活动灯保持关闭，编辑灯时升级 v6。范围为世界单位，锥角存弧度半角，面板显示度。
 
@@ -43,7 +43,7 @@
 - 上游测试：灯类型/数量与非法输入、空集合/移除、方向和锥角、距离衰减、单灯兼容、环境叠加、模式能力和阴影限制；灯光集合出错不得破坏已用状态。
 - 编辑器双端共用夹具：多灯混色和强度叠加、移动点光、旋转聚光、切内外锥角、隐藏/删除、父子变换、旧项目迁移、撤销、保存重开和跨端归档。真实 GPU 画面须证明每盏灯分别及同时贡献；API 调用成功不等于照明验收。
 
-编辑器使用正式 Release 0.6.0 配对包，SDK 源码与二进制保持安装清单原样；项目与 UI 逻辑留在编辑器。
+编辑器使用正式 Release 0.7.0 配对包，SDK 源码与二进制保持安装清单原样；项目与 UI 逻辑留在编辑器。
 
 ## 0.6.0 阴影接入
 
@@ -58,3 +58,9 @@ The native toolbar and web viewport can switch between raster and ray tracing. T
 Metal uses hardware rays; Mac Vulkan and WebGPU use compute BVH. Instance transforms and material changes rebuild a static ray snapshot; light changes reset accumulation without re-uploading geometry. Collection lights contribute through camera-path NEE in PT, BDPT, photon mapping and MLT. They currently do not emit BDPT source subpaths or photons; capabilities report these limits.
 
 Validation: published paired SDK installation and all 205 file hashes passed. All 78 JS tests and 10 native tests passed. Metal and Vulkan each ran 120 native UI frames covering mode switching, light edits and instance movement with zero GPU errors. Browser UI checks covered ray/raster switching, point-light editing and undo, independent material updates, plus existing camera, shadow, fog, environment and ZIP restore regression. Run node tools/check-ray-mode.mjs; ignored output/ contains logs and captures. Windows runtime validation remains deferred and this release has no Windows SDK.
+
+## 0.7.0 local light source transport
+
+The native and web viewport selectors expose PT, BDPT and Photon mapping. Point/spot lights now participate in BDPT source subpaths and photon emission through the published paired SDK; directional lights retain camera-path NEE. Capability flags explicitly list point/spot source support. Integrator selection is viewport state and does not change scene serialization.
+
+Shared HLSL handles delta-position PDFs, sphere/cone emission, source selection normalization, range falloff and direct/indirect separation. Photon density reconstruction retains finite-budget bias, especially for sharp glass caustics; it is not pixel-identical to PT. Editor validation covers selecting each integrator, light edits/undo, instance movement and runtime material changes on Metal, Vulkan compute BVH and WebGPU. Windows runtime remains deferred.

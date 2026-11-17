@@ -59,6 +59,9 @@ try {
     await page.getByLabel("渲染模式", { exact: true }).inputValue(),
     "ray-tracing",
   );
+  await page
+    .getByLabel("光追积分器", { exact: true })
+    .selectOption("bidirectional");
   const ray = await shot("ray");
   assert(diff(raster, ray) > 0.1, "Mode switch did not change pixels");
   await page.getByRole("treeitem").filter({ hasText: "Point light" }).click();
@@ -104,6 +107,10 @@ try {
     await page.getByLabel("渲染模式", { exact: true }).inputValue(),
     "ray-tracing",
   );
+  await page
+    .getByLabel("光追积分器", { exact: true })
+    .selectOption("photon-mapping");
+  await shot("photon-mapping");
   await page.getByLabel("渲染模式", { exact: true }).selectOption("raster");
   await ready();
   await shot("raster-restored");
