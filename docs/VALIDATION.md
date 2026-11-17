@@ -276,3 +276,12 @@ MTL_DEBUG_LAYER=1 ./build/editor_layout_render_test resources/viewport tests/fix
 - 实际编辑器 `--api vulkan --project ... --frames 12` 正常渲染，验证错误 0；默认 `--api auto` 保留原后端优先级。CLI 也接受 metal/dx12，但仍受当前平台是否支持该 API 的限制。
 - Chrome WebGPU 灯光创建、开关引起的像素变化、阴影选项禁用、撤销和 ZIP 保存重开通过。
 - 上游共享 HLSL 的 DX12 顶点/片元已编译为 DXIL；用户明确将 Windows 验证延期，因此未进行 DX12/Windows Vulkan 实机验证，也未发布 0.4.0 Windows SDK。点光/聚光阴影与光追模式灯光集合仍不支持，能力查询和界面明确报告。
+
+## 2026-11-17：0.5.0 点光与聚光阴影
+
+- 从正式 GitHub Release 安装并锁定 Nova 0.5.0，干净源提交 `2199a85b715d243aa0190553f7a40c428f1dfdd7`；205 个 SDK 文件校验通过，未修改包内源码或 shader。
+- 78 项 JS 测试与 10 项原生 CTest 全部通过。新增共用 `light-shadows.json` 场景 v7 夹具，覆盖阴影标志、保存/恢复、归档、撤销及不降级版本。旧 v1–v6 保留原值；首次启用点光/聚光阴影才升级 v7。
+- Metal（验证层开启）和 Mac Vulkan 各完成 120 帧实际原生 UI 集成，三种灯的 `castShadow` 正确桥接，GPU 错误为 0。
+- Chrome 实际创建三类灯、打开阴影；逐个关闭点光和聚光阴影均产生像素差异，撤销后标志恢复。ZIP 导出为 v7，重开后阴影勾选和锥角保留。
+- 上游 Metal/Vulkan/WebGPU 图像检查覆盖软硬阴影、全局/逐物体开关、遮挡物移动、光源背后物体不误投影、范围/锥角排除和混合灯逐灯阴影开关。点光/聚光使用有限 BVH 射线和世界空间光源圆盘；仅支持静态不透明实例。
+- DX12 shader 已编译为 DXIL，Windows 实机验证按用户要求延期；0.5.0 不含 Windows SDK。

@@ -78,7 +78,7 @@ namespace editor
     {
         if (
           !s.is_object()
-          || (s.at("schemaVersion") != 1 && s.at("schemaVersion") != 2 && s.at("schemaVersion") != 3 && s.at("schemaVersion") != 4 && s.at("schemaVersion") != 5 && s.at("schemaVersion") != 6)
+          || (s.at("schemaVersion") != 1 && s.at("schemaVersion") != 2 && s.at("schemaVersion") != 3 && s.at("schemaVersion") != 4 && s.at("schemaVersion") != 5 && s.at("schemaVersion") != 6 && s.at("schemaVersion") != 7)
           || !s.at("name").is_string() || !s.at("nodes").is_array() || !s.at("assets").is_object())
             throw std::runtime_error("Unsupported or malformed scene");
         if (s.contains("world"))
@@ -181,8 +181,10 @@ namespace editor
                   || !l.at("color").is_array() || l["color"].size() != 3 || !range(l.at("intensity"), 0, 100)
                   || !range(l.at("softness"), 0, 4) || !l.at("shadows").is_boolean() || !l.at("active").is_boolean())
                     throw std::runtime_error("Invalid light component");
-                if (l["type"] != "directional" && (!range(l.at("range"), 0, 1e7) || l["shadows"] != false))
-                    throw std::runtime_error("Invalid range or unsupported point/spot shadows");
+                if (
+                  l["type"] != "directional"
+                  && (!range(l.at("range"), 0, 1e7) || (s["schemaVersion"].get<int>() < 7 && l["shadows"] != false)))
+                    throw std::runtime_error("Invalid range or point/spot shadows require scene format 7");
                 if(l["type"] == "spot" && (!range(l.at("innerConeAngle"),0,1.5707963267948966) || !range(l.at("outerConeAngle"),0,1.5707963267948966) || l["innerConeAngle"].get<double>() > l["outerConeAngle"].get<double>() || l["outerConeAngle"].get<double>() >= 1.5707963267948966))
                     throw std::runtime_error("Invalid spot cone angles");
                 for (const auto& v : l["color"])

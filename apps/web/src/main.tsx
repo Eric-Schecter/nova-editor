@@ -2039,7 +2039,13 @@ function App() {
                               n.light = component as NonNullable<
                                 SceneNode["light"]
                               >;
-                              s.schemaVersion = 6;
+                              s.schemaVersion = Math.max(
+                                s.schemaVersion,
+                                n.light.type !== "directional" &&
+                                  n.light.shadows
+                                  ? 7
+                                  : 6,
+                              ) as Scene["schemaVersion"];
                             }
                           })
                         }

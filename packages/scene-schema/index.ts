@@ -37,7 +37,7 @@ export type SceneNode = {
   locked?: boolean;
 };
 export type Scene = {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   world?: WorldSettings;
   name: string;
   nodes: SceneNode[];
@@ -62,7 +62,7 @@ const record = (x: unknown): x is Record<string, unknown> =>
 export function validateScene(value: unknown): Scene {
   if (
     !record(value) ||
-    ![1, 2, 3, 4, 5, 6].includes(value.schemaVersion as number) ||
+    ![1, 2, 3, 4, 5, 6, 7].includes(value.schemaVersion as number) ||
     typeof value.name !== "string" ||
     !Array.isArray(value.nodes) ||
     !record(value.assets)
@@ -181,9 +181,12 @@ export function validateScene(value: unknown): Scene {
         throw Error("Invalid light component");
       if (
         l.type !== "directional" &&
-        (!range(l.range, 0, 1e7) || l.shadows !== false)
+        (!range(l.range, 0, 1e7) ||
+          ((value.schemaVersion as number) < 7 && l.shadows !== false))
       )
-        throw Error("Invalid range or unsupported point/spot shadows");
+        throw Error(
+          "Invalid range or point/spot shadows require scene format 7",
+        );
       if (
         l.type === "spot" &&
         (!range(l.innerConeAngle, 0, Math.PI / 2) ||

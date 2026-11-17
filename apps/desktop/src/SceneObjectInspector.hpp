@@ -75,8 +75,6 @@ namespace editor
                 if (ImGui::Combo("Light type", &type, types, 3))
                 {
                     draft["type"] = type == 1 ? "point" : type == 2 ? "spot" : "directional";
-                    if (type)
-                        draft["shadows"] = false;
                 }
                 if (type)
                     number("Range (0 = unlimited)", "range");
@@ -102,12 +100,12 @@ namespace editor
                         draft["color"][k] = assets::srgbToLinear(color[k]);
                 number("Intensity", "intensity");
                 bool shadows = draft["shadows"];
-                ImGui::BeginDisabled(type != 0);
                 if (ImGui::Checkbox("Node shadows", &shadows))
                     draft["shadows"] = shadows;
                 number("Shadow softness", "softness");
-                ImGui::EndDisabled();
-                ImGui::TextWrapped("Up to 16 simultaneous lights. Point/spot shadows are unsupported.");
+                ImGui::TextWrapped(
+                  "Per-light shadows for all types. Point/spot softness uses a world-space source disk. Static opaque "
+                  "scenes only.");
             }
             if (ImGui::Button("Apply node settings", {-1, 29}))
                 apply(draft, angles[0], angles[1], angles[2]);

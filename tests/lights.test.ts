@@ -82,3 +82,26 @@ test("light edits survive undo, archives and legacy inactive state; invalid edit
   });
   assert.equal(h.scene.schemaVersion, 6);
 });
+
+test("v7 point and spot shadow flags survive history, archive and independent toggles", () => {
+  const s = validateScene(
+    JSON.parse(readFileSync("tests/fixtures/light-shadows.json", "utf8")),
+  );
+  assert(sceneLights(s).every((l) => l.castShadow));
+  const h = new EditorHistory(s);
+  h.commit((s) => {
+    s.nodes[3].light!.shadows = false;
+    setPrimary(s, s.nodes[5].id, "light", false);
+  });
+  assert.equal(h.scene.schemaVersion, 7);
+  assert(!sceneLights(h.scene)[2].castShadow);
+  h.undo();
+  assert.deepEqual(h.scene, s);
+  h.redo();
+  assert.deepEqual(
+    unpackProject(packProject({ scene: h.scene, assets: {} })).scene,
+    h.scene,
+  );
+  const legacy = { ...s, schemaVersion: 6 };
+  assert.throws(() => validateScene(legacy));
+});

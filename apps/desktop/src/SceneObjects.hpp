@@ -96,7 +96,7 @@ namespace editor
             throw std::runtime_error("Wrong node type");
         if (kind == "light")
         {
-            scene["schemaVersion"] = 6;
+            scene["schemaVersion"] = std::max(6, scene["schemaVersion"].get<int>());
             for (auto& n : scene["nodes"])
                 if (n["id"] == id)
                     n["light"]["active"] = enabled;
@@ -169,7 +169,7 @@ namespace editor
                 v.range          = l.value("range", 0.f);
                 v.innerConeAngle = l.value("innerConeAngle", .35f);
                 v.outerConeAngle = l.value("outerConeAngle", .6f);
-                v.castShadow     = v.type == render::LightType::Directional && l["shadows"].get<bool>();
+                v.castShadow     = l["shadows"].get<bool>();
                 v.shadowSoftness = l["softness"];
                 auto d           = unit({m[8], m[9], m[10]});
                 for (int k = 0; k < 3; k++)

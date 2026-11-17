@@ -113,7 +113,10 @@ export function setPrimary(
   const node = scene.nodes.find((n) => n.id === id)!;
   if (!node[kind]) throw Error("节点类型不匹配");
   if (kind === "light") {
-    scene.schemaVersion = 6;
+    scene.schemaVersion = Math.max(
+      6,
+      scene.schemaVersion,
+    ) as Scene["schemaVersion"];
     node.light!.active = enabled;
     return;
   }
@@ -167,7 +170,7 @@ export function sceneLights(scene: Scene) {
         range: l.range ?? 0,
         innerConeAngle: l.innerConeAngle ?? 0.35,
         outerConeAngle: l.outerConeAngle ?? 0.6,
-        castShadow: l.type === "directional" && l.shadows,
+        castShadow: l.shadows,
         shadowSoftness: l.softness,
       };
     });

@@ -409,8 +409,13 @@ struct Editor
                           if (n["id"] == id)
                           {
                               n[kind] = component;
-                              s["schemaVersion"] =
-                                std::max(kind == "light" ? 6 : 5, s["schemaVersion"].template get<int>());
+                              s["schemaVersion"] = std::max(
+                                kind == "light"
+                                  ? (component["type"] != "directional" && component["shadows"].template get<bool>()
+                                       ? 7
+                                       : 6)
+                                  : 5,
+                                s["schemaVersion"].template get<int>());
                           }
                   });
               });
@@ -1091,7 +1096,7 @@ struct Editor
         if (auto light = editor::sceneDirectional(history.scene))
         {
             editor::theme::heading("Scene lighting");
-            ImGui::TextWrapped("Edit individual scene light nodes. Point/spot shadows are unsupported.");
+            ImGui::TextWrapped("Edit individual scene lights. All three types support static opaque shadows.");
             if (ImGui::Button("Select scene light", {-1, 29}))
             {
                 auto id = light->id;

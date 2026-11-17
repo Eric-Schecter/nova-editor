@@ -290,7 +290,7 @@ export async function checkUpdates(current, { fetcher = fetch } = {}) {
       (r) =>
         !r.draft &&
         !r.prerelease &&
-        /^v0\.4\.(0|[1-9]\d*)$/.test(r.tag_name) &&
+        /^v0\.5\.(0|[1-9]\d*)$/.test(r.tag_name) &&
         r.assets?.some((a) => a.name === "manifest.json"),
     )
     .sort(

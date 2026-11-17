@@ -61,6 +61,16 @@ int main(int argc, char** argv)
             }
             require(rejected, "bad input accepted");
         }
+        auto shadowScene = editor::Json::parse(std::ifstream(root / "tests/fixtures/light-shadows.json"));
+        editor::validate(shadowScene);
+        for (const auto& light : editor::sceneLights(shadowScene))
+            require(light.castShadow, "Local shadow flag lost");
+        editor::setPrimary(shadowScene, "point2", "light", false);
+        require(shadowScene["schemaVersion"] == 7, "Light enable downgraded scene");
+        editor::saveProject(folder / "shadow-project.json", shadowScene, folder);
+        require(editor::read(folder / "shadow-project.json") == shadowScene, "Shadow save reopen");
+        editor::saveRecovery(folder / "shadow-recovery", shadowScene, s, folder / "shadow-project.json", folder);
+        require(editor::readRecovery(folder / "shadow-recovery").scene == shadowScene, "Shadow recovery");
         std::cout << "PASS six-light scene transforms, independent flags, helpers, history, save and recovery\n";
         return 0;
     }

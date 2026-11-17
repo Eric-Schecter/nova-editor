@@ -150,9 +150,7 @@ export function SceneObjectProperties({
                     ({
                       ...previous,
                       type: e.target.value,
-                      shadows:
-                        e.target.value === "directional" &&
-                        (previous as LightComponent).shadows,
+                      shadows: (previous as LightComponent).shadows,
                     }) as LightComponent,
                 )
               }
@@ -200,23 +198,15 @@ export function SceneObjectProperties({
           <label>
             <input
               aria-label="节点阴影开关"
-              disabled={(component as LightComponent).type !== "directional"}
               type="checkbox"
               checked={(component as LightComponent).shadows}
               onChange={(e) => change("shadows", e.target.checked)}
             />{" "}
             阴影
           </label>
-          {number(
-            "节点阴影柔和度",
-            "softness",
-            0,
-            4,
-            0.1,
-            (component as LightComponent).type !== "directional",
-          )}
+          {number("节点阴影柔和度", "softness", 0, 4, 0.1, false)}
           <small>
-            最多 16 盏灯同时照明。点光和聚光暂不支持阴影；环境光独立叠加。
+            三类灯均支持逐灯阴影。点光和聚光柔和度使用世界单位光源圆盘；仅静态不透明场景。
           </small>
         </>
       )}

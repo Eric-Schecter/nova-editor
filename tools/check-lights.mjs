@@ -56,10 +56,8 @@ try {
       await page.getByLabel("灯光类型", { exact: true }).inputValue(),
       kind === "方向光" ? "directional" : kind === "点光" ? "point" : "spot",
     );
-    if (kind !== "方向光")
-      assert(
-        await page.getByLabel("节点阴影开关", { exact: true }).isDisabled(),
-      );
+    await page.getByLabel("节点阴影开关", { exact: true }).uncheck();
+    await page.getByLabel("节点阴影开关", { exact: true }).check();
     await page.getByLabel("节点灯光强度", { exact: true }).fill("12");
     if (kind === "聚光") {
       await page.getByLabel("内锥半角", { exact: true }).fill("20");
@@ -69,6 +67,24 @@ try {
       .getByRole("button", { name: "应用节点设置", exact: true })
       .click();
     await ready();
+  }
+  for (const name of ["Point light", "Spot light"]) {
+    await page.getByRole("treeitem").filter({ hasText: name }).click();
+    const enabled = await shot(name + "-shadow-on");
+    await page.getByLabel("节点阴影开关", { exact: true }).uncheck();
+    await page
+      .getByRole("button", { name: "应用节点设置", exact: true })
+      .click();
+    const disabled = await shot(name + "-shadow-off");
+    assert(
+      difference(enabled, disabled) > 0.001,
+      name + " shadow toggle did not affect pixels",
+    );
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+z" : "Control+z",
+    );
+    await ready();
+    assert(await page.getByLabel("节点阴影开关", { exact: true }).isChecked());
   }
   const all = await shot("all");
   await page.getByRole("button", { name: "关闭灯光", exact: true }).click();
@@ -95,9 +111,9 @@ try {
   const archive = unzipSync(readFileSync("output/lights-browser/project.zip")),
     scene = JSON.parse(new TextDecoder().decode(archive["project.json"])),
     lights = scene.nodes.filter((n) => n.light);
-  assert.equal(scene.schemaVersion, 6);
+  assert.equal(scene.schemaVersion, 7);
   assert.equal(lights.length, 3);
-  assert(lights.every((n) => n.light.active));
+  assert(lights.every((n) => n.light.active && n.light.shadows));
   assert(
     lights.some(
       (n) =>
@@ -118,10 +134,11 @@ try {
     await page.getByLabel("外锥半角", { exact: true }).inputValue(),
     "45",
   );
+  assert(await page.getByLabel("节点阴影开关", { exact: true }).isChecked());
   await page.screenshot({ path: "output/lights-browser/editor.png" });
   assert.deepEqual(errors, []);
   console.log(
-    "PASS editor WebGPU light creation, capabilities, live pixels, independent enable, undo, ZIP save/reopen",
+    "PASS editor WebGPU point/spot shadow switches and pixels, undo, scene v7 ZIP save/reopen",
   );
 } finally {
   await browser.close();

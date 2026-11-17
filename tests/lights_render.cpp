@@ -51,6 +51,19 @@ int main(int argc, char** argv)
         }
         if (point.empty() || spot.empty())
             throw std::runtime_error("Missing point/spot");
+        e.change([&](auto& s) {
+            s["schemaVersion"] = 7;
+            for (auto& n : s["nodes"])
+                if (n.contains("light"))
+                    n["light"]["shadows"] = true;
+        });
+        e.syncSceneObjects();
+        const auto caps = window.GetLightingCapabilities();
+        if (!caps.pointShadows || !caps.spotShadows)
+            throw std::runtime_error("Missing local shadow support");
+        for (const auto& l : window.GetLights())
+            if (!l.castShadow)
+                throw std::runtime_error("Shadow flag not bridged");
         int frames = 0;
         while (window.PollEvents() && frames < 120)
         {

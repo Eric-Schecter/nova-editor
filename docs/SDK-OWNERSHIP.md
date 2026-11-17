@@ -56,3 +56,7 @@ Formal `SetLights` / `setLights` and capability queries now own simultaneous dir
 ## 0.4.0 backend extension
 
 The same scene-light API now accepts Metal, Vulkan and DX12 raster backends. WebGPU semantics remain unchanged. Metal/Vulkan runtime and shader DXIL compilation are verified; Windows runtime validation is deferred and this release contains no Windows SDK. Native editor `--api` selects the backend without introducing editor-owned rendering. Directional BVH shadows remain supported; point/spot shadows and ray-tracing light collections remain unsupported.
+
+## 0.5.0 local-light shadows
+
+The formal SDK owns finite-distance point/spot BVH visibility, hard/soft filtering and truthful capabilities. Both editor UIs expose the same per-light shadow flag and softness without shader patches. Scene v7 records newly enabled local-light shadows; legacy documents preserve their previous flags. Windows runtime validation remains deferred.
