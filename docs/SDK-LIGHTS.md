@@ -50,3 +50,11 @@
 三类灯的对象属性页均提供阴影开关和柔和度。点光/聚光使用有限长度的 BVH 可见性射线，源后物体不会投影。柔和度范围 0–4；本地光源圆盘半径为 `softness * .006` 世界单位，方向光仍使用弧度。
 
 旧 v1–v6 文档保持原阴影状态。首次开启点光/聚光阴影时写入场景 v7（现有字段 `light.shadows`），后续编辑、切换启用、相机操作不降级版本。旧编辑器会拒绝 v7，而不会错误展示无阴影结果。阴影仅支持静态不透明实例；Windows 实机验证仍延期。
+
+## 0.6.0 ray tracing and instance scenes
+
+The native toolbar and web viewport can switch between raster and ray tracing. This is viewport state and does not change the project format. Instances, camera, materials and light collections survive switching. PT defaults to three bounces, half resolution and denoising; raster PBR/Unlit is disabled in ray mode. Earlier baseline sections above describe historical raster requirements.
+
+Metal uses hardware rays; Mac Vulkan and WebGPU use compute BVH. Instance transforms and material changes rebuild a static ray snapshot; light changes reset accumulation without re-uploading geometry. Collection lights contribute through camera-path NEE in PT, BDPT, photon mapping and MLT. They currently do not emit BDPT source subpaths or photons; capabilities report these limits.
+
+Validation: published paired SDK installation and all 205 file hashes passed. All 78 JS tests and 10 native tests passed. Metal and Vulkan each ran 120 native UI frames covering mode switching, light edits and instance movement with zero GPU errors. Browser UI checks covered ray/raster switching, point-light editing and undo, independent material updates, plus existing camera, shadow, fog, environment and ZIP restore regression. Run node tools/check-ray-mode.mjs; ignored output/ contains logs and captures. Windows runtime validation remains deferred and this release has no Windows SDK.
