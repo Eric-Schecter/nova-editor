@@ -56,6 +56,23 @@ struct Editor
     bool                   assetsOpen = false, focusProjectPath = false, focusModelPath = false;
     float                  scenePanelHeight = 285;
 
+    render::RenderMode renderMode = render::RenderMode::Raster;
+    void               setRenderMode(render::RenderMode value)
+    {
+        if (!window)
+            throw std::runtime_error("Renderer unavailable");
+        if (value == render::RenderMode::RayTracing)
+        {
+            auto settings            = window->GetRayTracing();
+            settings.maxBounces      = 3;
+            settings.resolutionScale = .5f;
+            settings.denoise         = true;
+            window->SetRayTracing(settings);
+        }
+        window->SetRenderMode(value);
+        renderMode = value;
+        sceneViewKey.clear();
+    }
     editor::StudioSettings studio;
     editor::Json           saved = editor::emptyScene();
     std::string            selected, status = "Ready", preview;
@@ -1755,7 +1772,7 @@ struct Editor
           [this](const std::string& error) { status = error; },
           [this](editor::OrbitCamera camera) { action([this, camera] { window->SetCamera(camera); }); });
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {5, 4});
-        panel("##ViewportOptions", {std::max(8.f, center - 234), top + 8}, {226, 36}, false);
+        panel("##ViewportOptions", {std::max(8.f, center - 330), top + 8}, {322, 36}, false);
         ImGui::BeginDisabled(tools.drag.has_value());
         if (ImGui::Button(
               mainPreview                        ? "Editor view"
@@ -1772,11 +1789,20 @@ struct Editor
                 window->SetCamera(c);
             });
         ImGui::SameLine();
-        if (ImGui::Button(lit ? "Lit" : "Unlit"))
+        if (ImGui::Button(renderMode == render::RenderMode::Raster ? "Raster" : "Ray tracing"))
+            action([this] {
+                setRenderMode(
+                  renderMode == render::RenderMode::Raster ? render::RenderMode::RayTracing
+                                                           : render::RenderMode::Raster);
+            });
+        ImGui::SameLine();
+        ImGui::BeginDisabled(renderMode == render::RenderMode::RayTracing);
+        if (ImGui::Button(renderMode == render::RenderMode::RayTracing ? "PBR" : lit ? "Lit" : "Unlit"))
         {
             lit = !lit;
             queueLighting();
         }
+        ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::End();
         ImGui::PopStyleVar();

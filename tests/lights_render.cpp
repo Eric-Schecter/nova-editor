@@ -69,6 +69,18 @@ int main(int argc, char** argv)
         {
             if (frames == 10)
                 e.select(point);
+            if (frames == 20)
+            {
+                e.setRenderMode(render::RenderMode::RayTracing);
+                auto tracing            = window.GetRayTracing();
+                tracing.resolutionScale = .25f;
+                tracing.maxBounces      = 2;
+                window.SetRayTracing(tracing);
+            }
+            if (
+              frames == 25
+              && (window.GetRenderMode() != render::RenderMode::RayTracing || window.GetAccumulatedSamples() == 0))
+                throw std::runtime_error("Editor failed to enter ray mode");
             if (frames == 30)
                 e.change([&](auto& s) { editor::setPrimary(s, point, "light", false); });
             if (frames == 40)
@@ -95,6 +107,19 @@ int main(int argc, char** argv)
                     if (l.id == spot && std::abs(l.outerConeAngle - .9f) > 1e-5)
                         throw std::runtime_error("Cone edit missing");
             }
+            if (frames == 70)
+                e.change([&](auto& document) {
+                    for (auto& n : document["nodes"])
+                        if (n.contains("assetId"))
+                        {
+                            n["transform"]["position"][0] = n["transform"]["position"][0].template get<double>() + .25;
+                            break;
+                        }
+                });
+            if (frames == 80 && window.GetRenderMode() != render::RenderMode::RayTracing)
+                throw std::runtime_error("Instance edit exited ray mode");
+            if (frames == 100)
+                e.setRenderMode(render::RenderMode::Raster);
             if (window.DrawFrame() == render::FrameResult::Rendered)
                 frames++;
             e.flush();

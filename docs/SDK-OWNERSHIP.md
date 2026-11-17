@@ -60,3 +60,7 @@ The same scene-light API now accepts Metal, Vulkan and DX12 raster backends. Web
 ## 0.5.0 local-light shadows
 
 The formal SDK owns finite-distance point/spot BVH visibility, hard/soft filtering and truthful capabilities. Both editor UIs expose the same per-light shadow flag and softness without shader patches. Scene v7 records newly enabled local-light shadows; legacy documents preserve their previous flags. Windows runtime validation remains deferred.
+
+## 0.6.0 ray scene ownership
+
+The SDK owns static instance-to-world ray snapshots, material atlases, hardware/compute traversal, analytic light NEE and accumulation reset. Vulkan prefers hardware queries and reports software traversal when compute BVH is used. The editor only selects mode and forwards existing scene/light/material/camera APIs. Mode is viewport state, not a serialized project component. Collection lights do not emit BDPT source subpaths or photons; the formal lighting capability flags report this explicitly. Windows runtime remains deferred.

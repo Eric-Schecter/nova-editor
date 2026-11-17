@@ -132,6 +132,15 @@ type Renderer = {
     spotShadows: boolean;
     reason: string;
   };
+  setRenderMode: (mode: "raster" | "ray-tracing") => void;
+  getRenderMode: () => "raster" | "ray-tracing";
+  getCapabilities: () => {
+    rayTracing: boolean;
+    softwareRayTracing: boolean;
+    reason: string;
+  };
+  setRayTracing: (settings: any) => void;
+  getRayTracing: () => any;
   setLighting: (mode: "pbr" | "unlit") => void;
   setShadows: (settings: { enabled: boolean; softness: number }) => void;
   setDirectionalLight: (light: {
@@ -257,6 +266,7 @@ function App() {
     [resourceDrag, setResourceDrag] = useState<ResourceDrag | null>(null),
     [gridSnap, setGridSnap] = useState(true),
     [lit, setLit] = useState(true),
+    [renderMode, setRenderMode] = useState<"raster" | "ray-tracing">("raster"),
     [light, setLight] = useState<LightingSettings>(defaultLighting),
     [sidebarTab, setSidebarTab] = useState<"scene" | "project" | "settings">(
       "scene",
@@ -332,6 +342,27 @@ function App() {
       setStatus(String(e));
     }
   };
+  function changeRenderMode(mode: "raster" | "ray-tracing") {
+    try {
+      const raw = renderer.current;
+      if (!raw) return;
+      if (mode === "ray-tracing") {
+        const caps = raw.getCapabilities();
+        if (!caps.rayTracing) throw Error(caps.reason);
+        raw.setRayTracing({
+          ...raw.getRayTracing(),
+          maxBounces: 3,
+          resolutionScale: 0.5,
+          denoise: true,
+        });
+      }
+      raw.setRenderMode(mode);
+      setRenderMode(mode);
+      void raw.drawFrame().catch((e) => setStatus(String(e)));
+    } catch (e) {
+      setStatus(String(e));
+    }
+  }
   function changeLight(value: LightingSettings) {
     if (history.scene.nodes.some((n) => n.light)) return;
     try {
@@ -725,7 +756,7 @@ function App() {
           if (alive.current && token === generation.current) setBusy(false);
         }
       });
-  }, [sceneKey, mainPreview]);
+  }, [sceneKey, mainPreview, renderMode]);
   function applyWorld(world: WorldSettings) {
     const valid = validateWorld(world);
     history.commit((s) => {
@@ -1571,6 +1602,18 @@ function App() {
               场景
             </span>
             <div className="viewport-actions">
+              <select
+                className="projection-switch"
+                aria-label="渲染模式"
+                value={renderMode}
+                disabled={busy || history.isPreviewing}
+                onChange={(e) =>
+                  changeRenderMode(e.target.value as "raster" | "ray-tracing")
+                }
+              >
+                <option value="raster">光栅</option>
+                <option value="ray-tracing">光追</option>
+              </select>
               <button
                 className="projection-switch"
                 aria-label="光照设置"
@@ -1581,8 +1624,8 @@ function App() {
               <button
                 className="projection-switch"
                 aria-label={activeSceneLight ? "场景光照" : "默认光照"}
-                aria-pressed={lit}
-                disabled={busy}
+                aria-pressed={renderMode === "ray-tracing" || lit}
+                disabled={busy || renderMode === "ray-tracing"}
                 title="默认摄影棚光照；关闭可查看材质原色"
                 onClick={() => {
                   try {
@@ -1597,11 +1640,13 @@ function App() {
                   }
                 }}
               >
-                {lit
-                  ? activeSceneLight
-                    ? "场景光照 · 开"
-                    : "默认光照 · 开"
-                  : "材质原色"}
+                {renderMode === "ray-tracing"
+                  ? "光追光照"
+                  : lit
+                    ? activeSceneLight
+                      ? "场景光照 · 开"
+                      : "默认光照 · 开"
+                    : "材质原色"}
               </button>
               <button
                 className="projection-switch"
@@ -1725,7 +1770,10 @@ function App() {
             title="左键选择 · 中键平移 · 右键环绕 · 滚轮缩放"
           >
             <span>{busy ? "正在加载…" : preview}</span>
-            <span>{camera.orthographic ? "正交" : "透视"}</span>
+            <span>
+              {renderMode === "ray-tracing" ? "光追 · 计算 BVH · " : "光栅 · "}
+              {camera.orthographic ? "正交" : "透视"}
+            </span>
           </div>
         </main>
         <aside className="sidebar" aria-label="编辑侧栏">

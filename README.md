@@ -122,7 +122,7 @@ pnpm dev:web
 
 ## SDK 依赖与分工
 
-渲染由 nova-render 0.5 的 native/Web 配对包提供；编辑器负责项目、交互、保存和资源版本。已替换多实例/原始空间、完整相机与视口、BVH 拾取、多材质槽、GPU 场景阴影、雾和环境清除，旧私有渲染补丁已退役。详细边界和验收见 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md)。
+渲染由 nova-render 0.6 的 native/Web 配对包提供；编辑器负责项目、交互、保存和资源版本。已替换多实例/原始空间、完整相机与视口、BVH 拾取、多材质槽、GPU 场景阴影、雾和环境清除，旧私有渲染补丁已退役。详细边界和验收见 [SDK-OWNERSHIP.md](docs/SDK-OWNERSHIP.md)。
 
 ```sh
 pnpm sdk:install
@@ -131,7 +131,7 @@ pnpm sdk:verify
 pnpm sdk:update --check
 ```
 
-当前包来自 [GitHub Release v0.5.0](https://github.com/Eric-Schecter/nova-render/releases/tag/v0.5.0)，可通过上方命令直接下载安装。安装器校验包 SHA-256、平台/架构和配对来源；`deps/nova/` 为可重建安装目录，网页 `public/sdk/` 为部署副本。材质面板调用正式运行时 API，同时保留 GLB 版本、撤销和项目恢复。nlohmann/json 3.12.0 是编辑器自己的序列化依赖，头文件与许可随仓库保存在 `third_party/nlohmann-json/`，不再依赖未跟踪的 `.sdk/support`。
+当前包来自 [GitHub Release v0.6.0](https://github.com/Eric-Schecter/nova-render/releases/tag/v0.6.0)，可通过上方命令直接下载安装。安装器校验包 SHA-256、平台/架构和配对来源；`deps/nova/` 为可重建安装目录，网页 `public/sdk/` 为部署副本。材质面板调用正式运行时 API，同时保留 GLB 版本、撤销和项目恢复。nlohmann/json 3.12.0 是编辑器自己的序列化依赖，头文件与许可随仓库保存在 `third_party/nlohmann-json/`，不再依赖未跟踪的 `.sdk/support`。
 
 默认安装严格恢复锁文件，升级需显式执行 `pnpm sdk:update <精确版本>`；支持缓存、`pnpm sdk:install --offline`、配对来源校验与失败回滚。详见 [下载、锁定和更新](docs/SDK-DOWNLOAD.md)。
 
@@ -200,4 +200,6 @@ node tools/fixtures/units.mjs
 MTL_DEBUG_LAYER=1 ./build/source_space_test "$PWD/tests/fixtures"
 ```
 
-原生可用 `--api auto|metal|vulkan|dx12` 选择后端，例如 `build/nova_editor.app/Contents/MacOS/nova_editor --api vulkan --project /path/to/project.json`。0.5.0 已验证 macOS Metal/Vulkan 与 WebGPU 多灯，DX12 仅完成共享 HLSL 的 DXIL 编译，Windows 实机验证暂缓，未发布新版 Windows SDK。
+原生可用 `--api auto|metal|vulkan|dx12` 选择后端，例如 `build/nova_editor.app/Contents/MacOS/nova_editor --api vulkan --project /path/to/project.json`。0.6.0 已验证 macOS Metal/Vulkan 与 WebGPU 多灯，DX12 仅完成共享 HLSL 的 DXIL 编译，Windows 实机验证暂缓，未发布新版 Windows SDK。
+
+视口工具栏支持光栅 / 光追切换；多实例场景可直接使用方向光、点光和聚光。光追默认 PT、3 次反弹、50% 分辨率与降噪，模式是当前视口设置，不改项目文档。静态世界变换与材质更新重置累积；灯光修改不重新上传几何。Metal 使用硬件查询，缺少查询扩展的 Vulkan 与 WebGPU 使用计算 BVH（能力查询如实报告）。显式灯暂不发射 BDPT 光源子路径或光子。
