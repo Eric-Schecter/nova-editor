@@ -171,6 +171,15 @@ test("SDK contract rejects incompatible versions, platforms, missing features an
     change(m);
     assert.throws(() => validateManifest(m));
   }
+  const next = structuredClone(makeManifest());
+  next.version = "0.9.0";
+  next.features.push(
+    "scene-animation",
+    "scene-animation-queries",
+    "hybrid-rendering",
+  );
+  validateManifest(next);
+  assert.equal(parseReleaseURL(releaseURL("0.9.0")), "0.9.0");
   const m = makeManifest();
   assertPaired(m, info, info, {
     name: "@nova/render-web",
