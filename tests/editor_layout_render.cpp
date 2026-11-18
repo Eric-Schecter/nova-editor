@@ -230,9 +230,11 @@ int main(int argc, char** argv)
             }
             if (frames == 515)
             {
-                if (
-                  !e.mainPreview || std::abs(window.GetCamera().yaw - 25) > 1e-3
-                  || window.GetDirectionalLight().intensity != 6)
+                const auto lights = window.GetLights();
+                const bool sceneLightApplied = std::any_of(lights.begin(), lights.end(), [&](const auto& light) {
+                    return light.id == sceneSun && light.enabled && light.intensity == 6;
+                });
+                if (!e.mainPreview || std::abs(window.GetCamera().yaw - 25) > 1e-3 || !sceneLightApplied)
                     throw std::runtime_error("Scene camera / light not applied to SDK");
             }
             if (frames == 540)
