@@ -286,8 +286,13 @@ int main(int argc, char** argv)
             if (window.DrawFrame() == render::FrameResult::Rendered)
                 frames++;
             e.flush();
+#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
+            if (frames == 90)
+                window.SetSize(900, 640);
+#else
             if (frames == 90 && e.nativeHandle)
                 glfwSetWindowSize(e.nativeHandle, 900, 640);
+#endif
         }
         window.WaitIdle();
         if (frames != 720 || window.ValidationErrorCount())

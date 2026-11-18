@@ -12,7 +12,9 @@
 #include "Theme.hpp"
 #include "Transforms.hpp"
 #include "Viewport.hpp"
+#ifndef NOVA_EDITOR_WINDOW_HOST_CONTROLS
 #include <GLFW/glfw3.h>
+#endif
 #include <chrono>
 #include <functional>
 #include <imgui.h>
@@ -95,7 +97,9 @@ struct Editor
     std::vector<std::filesystem::path>    recoveries;
     editor::Json                          observed, recoveredSnapshot;
     std::chrono::steady_clock::time_point changedAt       = std::chrono::steady_clock::now();
+#ifndef NOVA_EDITOR_WINDOW_HOST_CONTROLS
     GLFWwindow*                           nativeHandle    = nullptr;
+#endif
     bool                                  renameRequested = false, nameDraftDirty = false;
     bool                                  requestClose = false, exitApproved = false, showUnsaved = false;
     std::string                           requestedOpen;
@@ -1250,7 +1254,9 @@ struct Editor
     }
     void draw()
     {
+#ifndef NOVA_EDITOR_WINDOW_HOST_CONTROLS
         nativeHandle      = static_cast<GLFWwindow*>(ImGui::GetMainViewport()->PlatformHandle);
+#endif
         auto        d     = ImGui::GetIO().DisplaySize;
         const float right = std::min(330.f, std::max(260.f, d.x * .26f)), left = 0, top = ImGui::GetFrameHeight();
         const float center = std::max(1.f, d.x - right), bottom = (assetsOpen ? 145.f : 30.f) + 25.f;
@@ -2152,12 +2158,16 @@ int main(int argc, char** argv)
                 editor.commitNameDraft();
                 if (editor.exitApproved || !editor.dirty())
                     break;
+#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
+                window.CancelClose();
+#else
                 if (!editor.nativeHandle)
                 {
                     editor.autosave(true);
                     break;
                 }
                 glfwSetWindowShouldClose(editor.nativeHandle, GLFW_FALSE);
+#endif
                 editor.history.cancelPreview();
                 editor.requestClose = true;
                 editor.showUnsaved  = true;
