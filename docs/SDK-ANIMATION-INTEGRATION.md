@@ -1,4 +1,4 @@
-# Scene animation SDK integration (0.9.1)
+# Scene animation SDK integration (0.9.2)
 
 The paired SDK now supplies asset clip discovery, independent per-instance playback, manual clocks, and posed bounds/picking. Existing editor animation UI is not implemented by this SDK update.
 
@@ -11,3 +11,5 @@ SetScene preserves state only for unchanged instance ID, asset ID and asset path
 Keep the existing protections for static GLB export and mesh splitting. Playback is preview state, separate from persisted authoring TRS and undo history.
 
 Validated with the formal GitHub Release 0.9.0 pair (source `2e3754d79be2239ec1ffecfcf2b66404d82d1c08`): 224 installed files passed provenance/hash verification; 85 Node tests, 11 native CTest tests, Web build, desktop build, browser material/environment/camera/project checks and a 30-frame Metal startup passed with zero validation errors. Renderer package consumers separately exercised the new per-instance APIs on Metal, Vulkan and Chrome WebGPU. Windows runtime remains deferred.
+
+The 0.9.2 SDK also supports self-shadowing during legacy single-model playback. Enable raster shadows with SetShadows or use a shadow-casting scene light.
