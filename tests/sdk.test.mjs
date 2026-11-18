@@ -180,6 +180,11 @@ test("SDK contract rejects incompatible versions, platforms, missing features an
   );
   validateManifest(next);
   assert.equal(parseReleaseURL(releaseURL("0.9.0")), "0.9.0");
+  next.version = "0.10.0";
+  validateManifest(next);
+  assert.equal(parseReleaseURL(releaseURL("0.10.0")), "0.10.0");
+  next.features = next.features.filter((feature) => feature !== "hybrid-rendering");
+  assert.throws(() => validateManifest(next));
   const m = makeManifest();
   assertPaired(m, info, info, {
     name: "@nova/render-web",

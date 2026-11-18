@@ -739,6 +739,26 @@ struct Editor
         recoveries.erase(std::remove(recoveries.begin(), recoveries.end(), folder), recoveries.end());
         status = "Recovered project; save to keep changes";
     }
+    bool continueAfterClose(render::Window& window)
+    {
+        commitNameDraft();
+        if (exitApproved || !dirty())
+            return false;
+#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
+        window.CancelClose();
+#else
+        if (!nativeHandle)
+        {
+            autosave(true);
+            return false;
+        }
+        glfwSetWindowShouldClose(nativeHandle, GLFW_FALSE);
+#endif
+        history.cancelPreview();
+        requestClose = true;
+        showUnsaved  = true;
+        return true;
+    }
     void finishRequest(bool saveFirst)
     {
         if (saveFirst)
@@ -2153,25 +2173,8 @@ int main(int argc, char** argv)
         int frames = 0;
         while (!limit || frames < limit)
         {
-            if (!window.PollEvents())
-            {
-                editor.commitNameDraft();
-                if (editor.exitApproved || !editor.dirty())
-                    break;
-#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
-                window.CancelClose();
-#else
-                if (!editor.nativeHandle)
-                {
-                    editor.autosave(true);
-                    break;
-                }
-                glfwSetWindowShouldClose(editor.nativeHandle, GLFW_FALSE);
-#endif
-                editor.history.cancelPreview();
-                editor.requestClose = true;
-                editor.showUnsaved  = true;
-            }
+            if (!window.PollEvents() && !editor.continueAfterClose(window))
+                break;
             if (editor.exitApproved)
                 break;
             if (window.DrawFrame() == render::FrameResult::Rendered)
