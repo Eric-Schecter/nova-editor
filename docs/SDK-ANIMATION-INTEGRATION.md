@@ -1,4 +1,4 @@
-# Scene animation SDK integration (0.9.0)
+# Scene animation SDK integration (0.9.1)
 
 The paired SDK now supplies asset clip discovery, independent per-instance playback, manual clocks, and posed bounds/picking. Existing editor animation UI is not implemented by this SDK update.
 
@@ -6,7 +6,7 @@ Use `GetAnimations(assetId)`, `Get/SetAnimationState(instanceId)`, `UpdateAnimat
 
 SetScene preserves state only for unchanged instance ID, asset ID and asset path/URL. Removing/filtering an instance discards its SDK state; reintroducing starts paused at zero. Keep any desired hidden-object preview state in the editor. Material/transform edits preserve state.
 
-`GetAnimationCapabilities()` reports skeletal and rigid node TRS support, no morph/CUBICSPLINE, no animated shadow casting, no animated Hybrid/ray mode. Animated instances receive static shadows. Query `GetSceneInstanceBounds(id)` and PickScene against the current pose. CPU pose geometry is computed only for queries; raster uses shared HLSL GPU skinning.
+`GetAnimationCapabilities()` reports skeletal and rigid node TRS support, posed raster shadows since 0.9.1, and the current limits for morph/CUBICSPLINE and animated Hybrid/ray modes. Scene instances honor the existing castShadow flag. Query `GetSceneInstanceBounds(id)` and PickScene against the current pose. Shadows and queries use the current CPU pose geometry, while raster vertices use shared HLSL GPU skinning.
 
 Keep the existing protections for static GLB export and mesh splitting. Playback is preview state, separate from persisted authoring TRS and undo history.
 
