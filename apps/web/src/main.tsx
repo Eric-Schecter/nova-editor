@@ -142,7 +142,12 @@ type Renderer = {
   setRayTracing: (settings: any) => void;
   getRayTracing: () => any;
   setLighting: (mode: "pbr" | "unlit") => void;
-  setShadows: (settings: { enabled: boolean; softness: number }) => void;
+  setShadows: (settings: {
+    enabled?: boolean;
+    softness?: number;
+    samples?: number;
+    halfResolution?: boolean;
+  }) => void;
   setDirectionalLight: (light: {
     direction: number[];
     color: number[];
@@ -266,6 +271,7 @@ function App() {
     [resourceDrag, setResourceDrag] = useState<ResourceDrag | null>(null),
     [gridSnap, setGridSnap] = useState(true),
     [lit, setLit] = useState(true),
+    [halfShadows, setHalfShadows] = useState(false),
     [renderMode, setRenderMode] = useState<"raster" | "ray-tracing">("raster"),
     [integrator, setIntegrator] = useState("path"),
     [light, setLight] = useState<LightingSettings>(defaultLighting),
@@ -397,6 +403,16 @@ function App() {
         softness: 1,
       });
       setLight(value);
+      if (renderer.current)
+        void renderer.current.drawFrame().catch((e) => setStatus(String(e)));
+    } catch (e) {
+      setStatus(String(e));
+    }
+  }
+  function changeShadowResolution(halfResolution: boolean) {
+    try {
+      renderer.current?.setShadows({ halfResolution });
+      setHalfShadows(halfResolution);
       if (renderer.current)
         void renderer.current.drawFrame().catch((e) => setStatus(String(e)));
     } catch (e) {
@@ -1935,6 +1951,15 @@ function App() {
                       changeLit(true);
                     }}
                   />
+                  <label className="light-check">
+                    <input
+                      type="checkbox"
+                      checked={halfShadows}
+                      disabled={busy || !lit || renderMode !== "raster"}
+                      onChange={(e) => changeShadowResolution(e.target.checked)}
+                    />
+                    半分辨率阴影
+                  </label>
                 </>
               ) : node?.assetId &&
                 (inspectorTab === "geometry" || inspectorTab === "material") ? (
