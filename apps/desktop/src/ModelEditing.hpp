@@ -160,8 +160,9 @@ namespace editor::assets
                 for (size_t pi = 0; pi < primitives.size(); pi++)
                 {
                     const auto& p = primitives[pi];
-                    if (p.value("mode", 4) != 4 || p.contains("targets") || p.contains("extensions"))
-                        throw std::runtime_error("Only uncompressed static triangles supported");
+                    const int mode = p.value("mode", 4);
+                    if (mode < 0 || mode > 6 || p.contains("targets") || p.contains("extensions"))
+                        throw std::runtime_error("Only uncompressed static glTF primitives are supported");
                     auto material =
                       p.contains("material") ? j.at("materials").at(p["material"].get<size_t>()) : Json::object();
                     if (auto mode = material.value("alphaMode", "OPAQUE");

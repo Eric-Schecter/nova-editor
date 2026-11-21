@@ -196,8 +196,9 @@ export function decodeModel(bytes: Uint8Array): EditableModel {
       if (!mesh || !Array.isArray(mesh.primitives) || !mesh.primitives.length)
         throw Error("缺少模型网格");
       mesh.primitives.forEach((p: any, pi: number) => {
-        if ((p.mode ?? 4) !== 4 || p.targets || p.extensions)
-          throw Error("仅支持未压缩的静态三角形子网格");
+        const mode = p.mode ?? 4;
+        if (!Number.isInteger(mode) || mode < 0 || mode > 6 || p.targets || p.extensions)
+          throw Error("仅支持未压缩的静态 glTF 图元");
         const material =
           j.materials?.[p.material] ?? (p.material === undefined ? {} : null);
         if (
