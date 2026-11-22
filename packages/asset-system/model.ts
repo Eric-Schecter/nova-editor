@@ -125,7 +125,7 @@ export function decodeModel(bytes: Uint8Array): EditableModel {
   if (
     (j.extensionsRequired ?? []).some(
       (x: string) =>
-        !["KHR_materials_ior", "KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_clearcoat", "KHR_materials_specular", "KHR_materials_unlit", "KHR_texture_transform", "KHR_materials_pbrSpecularGlossiness"].includes(x),
+        !["KHR_materials_ior", "KHR_materials_transmission", "KHR_materials_volume", "KHR_materials_clearcoat", "KHR_materials_specular", "KHR_materials_unlit", "KHR_texture_transform", "KHR_materials_pbrSpecularGlossiness", "KHR_materials_sheen"].includes(x),
     )
   )
     throw Error("模型使用了不支持的必需扩展");
