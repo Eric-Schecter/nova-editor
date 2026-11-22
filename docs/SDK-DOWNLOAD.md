@@ -1,6 +1,6 @@
 # GitHub Release 配对依赖
 
-默认来源为 `Eric-Schecter/nova-render` 的正式 GitHub Release。原生库/头文件、Web 模块和 shader 必须使用同一版本、同一干净源码提交，不能单独更新其中一端。当前兼容范围为稳定的 **0.8.x、0.9.x 和 0.10.x**。当前锁定 0.10.27，原生窗口由 C++ SDK 内的 SDL3 管理。
+默认来源为 `Eric-Schecter/nova-render` 的正式 GitHub Release。原生库/头文件、Web 模块和 shader 必须使用同一版本、同一干净源码提交，不能单独更新其中一端。当前兼容范围为稳定的 **0.8.x、0.9.x 和 0.10.x**。当前锁定 0.10.28，原生窗口由 C++ SDK 内的 SDL3 管理。
 
 ## 安装与锁定
 
@@ -50,7 +50,15 @@ pnpm sdk:install --offline
 
 ## 平台与其他依赖
 
-目前 0.8.0 Release 的原生包只提供 **macOS ARM64 Release、启用 UI**。Windows/Linux 不会自动降级借用 0.1.0，也不会让网页端悄悄使用另一版本；缺少匹配包时直接说明不支持。未来上游提供新的平台清单/包布局后，再扩展选择逻辑并分别验证 ABI/Runtime。
+0.10.28 发布配对的 macOS ARM64、iOS 真机 ARM64、iOS Simulator ARM64 和 Android ARM64 原生 SDK。默认根据本机 OS 和架构选择桌面包。移动端交叉构建请显式指定目标：
+
+```sh
+NOVA_SDK_TARGET=ios-arm64 pnpm sdk:update 0.10.28
+NOVA_SDK_TARGET=ios-arm64 pnpm sdk:verify
+NOVA_SDK_TARGET=ios-arm64 pnpm sdk:install --offline
+```
+
+可选移动目标为 `ios-arm64`、`ios-simulator-arm64` 和 `android-arm64`。每个检出目录安装一份原生包和一个配对锁。并行构建不同目标时，请使用独立检出目录。恢复与验证时应指定锁里的同一目标。切换目标用 `sdk:update`，原版本清单和 Web 包的校验仍然有效。移动包的桌面 ImGui UI 和独立路径追踪未启用。安装器只准备 SDK，编辑器原生移动应用需要自己的窗口和交互适配。
 
 SDK 缓存是可删除重建的渲染依赖。编辑器自己的 nlohmann/json 3.12.0 头文件及 MIT 许可位于 `third_party/nlohmann-json/`，不依赖 `.sdk/support` 或相邻 nova-v2/vcpkg 工作区；模型和环境贴图仍由编辑器项目管理。
 

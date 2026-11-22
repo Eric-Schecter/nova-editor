@@ -22,6 +22,7 @@ import {
   version,
   parseReleaseURL,
   isHash,
+  sdkTarget,
 } from "./core.mjs";
 import { layout, stateRoot, cachePath, currentLayoutLock } from "./paths.mjs";
 import { cachedBytes, resolveRelease } from "./download.mjs";
@@ -100,7 +101,7 @@ export async function installPair(
     const prefix = join(work, "extract-native", entries[0].name),
       web = join(work, "extract-web/package");
     for (const file of [
-      "include/imgui.h",
+      ...(manifest.native.uiEnabled ? ["include/imgui.h"] : []),
       "include/render/Renderer.hpp",
       "lib/cmake/Nova/NovaConfig.cmake",
     ])
@@ -188,7 +189,7 @@ export async function installPair(
         : {}),
       sourceCommit: manifest.sourceCommit,
       sourceDirty: false,
-      target: `${process.platform}-${process.arch}`,
+      target: sdkTarget(),
       configuration: manifest.native.configuration,
       version: manifest.version,
       extensions: [],
@@ -283,7 +284,9 @@ export async function updateRelease(root, input, { fetcher = fetch } = {}) {
       lock?.version === release.version &&
       lock.channel === "github-release"
     ) {
-      assertLockedManifest(lock, release.bytes, release.manifest);
+      assertLockedManifest(lock, release.bytes, release.manifest, {
+        switchingTarget: lock.target !== sdkTarget(),
+      });
       if (
         lock.formatVersion >= 3 &&
         lock.channel === "github-release" &&

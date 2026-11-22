@@ -59,51 +59,60 @@ export function artifact(value) {
     throw Error("Invalid SDK archive name or SHA-256");
   return value;
 }
-export function validateManifest(
-  m,
-  { platform = process.platform, arch = process.arch, expectedVersion } = {},
-) {
+const mobilePlatforms = {
+  "ios-arm64": "iOS",
+  "ios-simulator-arm64": "iOS-Simulator",
+  "android-arm64": "Android",
+};
+export const sdkTarget = () =>
+  process.env.NOVA_SDK_TARGET || `${process.platform}-${process.arch}`;
+const mobileRequiredFeatures = requiredFeatures.filter(
+  (feature) => feature !== "application-ui" && !feature.startsWith("ray-"),
+);
+export function validateManifest(m, { platform, arch, expectedVersion } = {}) {
+  const target = platform ? `${platform}-${arch ?? process.arch}` : sdkTarget();
+  const mobilePlatform = Object.hasOwn(mobilePlatforms, target)
+    ? mobilePlatforms[target]
+    : undefined;
   if (
     m?.schemaVersion !== 1 ||
     m.sourceDirty !== false ||
     !/^[a-f0-9]{40}$/.test(m.sourceCommit ?? "") ||
     version(m.version) !== m.version ||
-    !Array.isArray(m.features) ||
-    !requiredFeatures.every((f) => m.features.includes(f))
+    !Array.isArray(m.features)
   )
-    throw Error(
-      "A clean paired Nova 0.8.x/0.9.x/0.10.x manifest with all editor features is required",
-    );
-  if (
-    !m.version.startsWith("0.8.") &&
-    !["scene-animation", "scene-animation-queries", "hybrid-rendering"].every(
-      (f) => m.features.includes(f),
-    )
-  )
-    throw Error(
-      "Nova 0.9 and 0.10 require scene animation, posed queries and Hybrid features",
-    );
+    throw Error("A clean, versioned Nova SDK manifest is required");
   if (expectedVersion && m.version !== expectedVersion)
     throw Error("Release tag and manifest version mismatch");
-  artifact(m.native);
+
+  const native = mobilePlatform ? m.nativeTargets?.[target] : m.native;
+  const desktopTarget = /^(darwin|win32|linux)-(arm64|x64)$/.exec(target);
+  const expectedPlatform = mobilePlatform ?? {
+    darwin: "Darwin", win32: "Windows", linux: "Linux",
+  }[desktopTarget?.[1]];
+  const expectedArch = target.split("-").at(-1);
+  const nativeArch = {
+    aarch64: "arm64", x86_64: "x64", AMD64: "x64",
+  }[native?.architecture] ?? native?.architecture;
+  if (!native || !expectedPlatform || native.platform !== expectedPlatform || nativeArch !== expectedArch)
+    throw Error(`No matching native package for ${target}. No fallback to another version or platform.`);
+  artifact(native);
   artifact(m.web);
-  const nativePlatform = { darwin: "Darwin", win32: "Windows", linux: "Linux" }[
-    platform
-  ];
-  const nativeArch =
-    { aarch64: "arm64", x86_64: "x64", AMD64: "x64" }[m.native.architecture] ??
-    m.native.architecture;
-  if (m.native.platform !== nativePlatform || nativeArch !== arch)
-    throw Error(
-      `No matching native package for ${platform}-${arch}; manifest contains ${m.native.platform}-${nativeArch}. No fallback to a different version or platform.`,
-    );
+  const features = mobilePlatform ? native.features : m.features;
   if (
-    m.native.uiEnabled !== true ||
-    m.native.configuration !== "Release" ||
+    !Array.isArray(features) ||
+    !(mobilePlatform ? mobileRequiredFeatures : requiredFeatures).every((f) => features.includes(f)) ||
+    (!m.version.startsWith("0.8.") &&
+      !["scene-animation", "scene-animation-queries", "hybrid-rendering"].every((f) => features.includes(f)))
+  )
+    throw Error("SDK package is missing required editor features");
+  if (
+    (mobilePlatform ? typeof native.uiEnabled !== "boolean" : native.uiEnabled !== true) ||
+    native.configuration !== "Release" ||
     m.web.packageName !== "@nova/render-web"
   )
-    throw Error("Expected UI-enabled Release SDK and @nova/render-web package");
-  return m;
+    throw Error("Expected a compatible Release SDK and @nova/render-web package");
+  return { ...m, native };
 }
 export function assertPaired(m, native, web, pkg) {
   for (const info of [native, web])
@@ -114,17 +123,17 @@ export function assertPaired(m, native, web, pkg) {
     )
       throw Error("Native/Web/shader provenance mismatch");
   if (
-    native.uiEnabled !== true ||
+    native.uiEnabled !== m.native.uiEnabled ||
     native.platform !== m.native.platform ||
     native.architecture !== m.native.architecture ||
     native.configuration !== m.native.configuration ||
-    !requiredFeatures.every((f) => native.features?.includes(f))
+    !(m.native.features ?? requiredFeatures).every((f) => native.features?.includes(f))
   )
     throw Error("Native build metadata does not match manifest");
   if (pkg && (pkg.name !== m.web.packageName || pkg.version !== m.version))
     throw Error("Web module package metadata does not match shaders");
 }
-export function assertLockedManifest(lock, bytes, m) {
+export function assertLockedManifest(lock, bytes, m, { switchingTarget = false } = {}) {
   if (
     !lock ||
     !isHash(lock.package?.manifestSha256) ||
@@ -136,7 +145,8 @@ export function assertLockedManifest(lock, bytes, m) {
       "Locked Release manifest changed; refusing to replace the pinned dependency",
     );
   for (const name of ["native", "web"])
-    if (JSON.stringify(m[name]) !== JSON.stringify(lock.package[name]))
+    if (!(switchingTarget && name === "native") &&
+        JSON.stringify(m[name]) !== JSON.stringify(lock.package[name]))
       throw Error("Locked artifact descriptor changed");
 }
 export function validateLockedRelease(lock) {
@@ -145,7 +155,7 @@ export function validateLockedRelease(lock) {
     lock.channel !== "github-release" ||
     lock.sourceDirty !== false ||
     lock.extensions?.length !== 0 ||
-    lock.target !== `${process.platform}-${process.arch}`
+    lock.target !== sdkTarget()
   )
     throw Error(
       "No matching GitHub Release lock. Run sdk:update <exact-version> first.",
