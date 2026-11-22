@@ -89,6 +89,10 @@ namespace editor::assets
         doc.extra.clear();
         return doc;
     }
+    struct ModelExpansionBudgetError : std::runtime_error
+    {
+        using std::runtime_error::runtime_error;
+    };
     struct EditableModel
     {
         Json                         nodes = Json::array(), parts = Json::array(), normalization = identity();
@@ -101,7 +105,8 @@ namespace editor::assets
         if (!j.value("animations", Json::array()).empty() || !j.value("skins", Json::array()).empty())
             throw std::runtime_error("Cannot expand animated or skinned models");
         for (const auto& x : j.value("extensionsRequired", Json::array()))
-            if (x != "KHR_materials_ior" && x != "KHR_materials_transmission" && x != "KHR_materials_volume" && x != "KHR_materials_clearcoat" && x != "KHR_materials_unlit" && x != "KHR_materials_pbrSpecularGlossiness" && x != "KHR_materials_sheen" && x != "KHR_materials_iridescence" && x != "KHR_materials_anisotropy" && x != "KHR_materials_specular" && x != "KHR_texture_transform")
+            if (x != "KHR_materials_ior" && x != "KHR_materials_transmission" && x != "KHR_materials_volume" && x != "KHR_materials_clearcoat" && x != "KHR_materials_unlit" && x != "KHR_materials_pbrSpecularGlossiness" && x != "KHR_materials_sheen" && x != "KHR_materials_iridescence" && x != "KHR_materials_anisotropy" && x != "KHR_texture_transform" &&
+                x != "KHR_materials_specular")
                 throw std::runtime_error("Unsupported required model extension");
         for (const auto& b : j.value("buffers", Json::array()))
             if (b.contains("uri"))
@@ -113,8 +118,10 @@ namespace editor::assets
         std::set<size_t>      visited;
         std::array<double, 3> minimum{INFINITY, INFINITY, INFINITY}, maximum{-INFINITY, -INFINITY, -INFINITY};
         std::function<void(size_t, Json, Matrix)> visit = [&](size_t index, Json parent, Matrix world) {
-            if (index >= j.at("nodes").size() || !visited.insert(index).second || result.nodes.size() >= 4096)
-                throw std::runtime_error("Invalid, repeated or excessive model nodes");
+            if (index >= j.at("nodes").size() || !visited.insert(index).second)
+                throw std::runtime_error("Invalid or repeated model nodes");
+            if (result.nodes.size() >= 4096)
+                throw ModelExpansionBudgetError("Model exceeds 4096 editable nodes");
             const auto& n = j["nodes"][index];
             if (n.contains("skin"))
                 throw std::runtime_error("Skinned model nodes unsupported");
@@ -240,7 +247,7 @@ namespace editor::assets
         for (const auto& [key, bytes] : result.files)
             outputBytes += bytes.size();
         if (result.nodes.size() > 4096 || outputBytes > 120 * 1024 * 1024)
-            throw std::runtime_error("Expanded model exceeds 4096 nodes / 120 MiB budget");
+            throw ModelExpansionBudgetError("Expanded model exceeds 4096 nodes / 120 MiB budget");
         double half = 0;
         for (int k = 0; k < 3; k++)
             half = std::max(half, (maximum[k] - minimum[k]) * .5);

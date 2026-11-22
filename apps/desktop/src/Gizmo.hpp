@@ -303,7 +303,7 @@ namespace editor
             return {};
         return Drag{g, k, start, *parameter, *vector, plane, anchor};
     }
-    inline Json updateDrag(const Drag& drag, Screen p, bool snap = false)
+    inline Json updateDrag(const Drag& drag, Screen p, bool snap = false, double positionStep = .25, bool alignWorldGrid = false)
     {
         const auto& g     = drag.gizmo;
         int         k     = drag.axis;
@@ -312,6 +312,11 @@ namespace editor
         auto        round = [&](double v, double step) { return snap ? std::round(v / step) * step : v; };
         if (g.mode == Tool::Translate)
         {
+            const auto positionDelta = [&](double v, int axis) {
+                if (!snap || !alignWorldGrid || std::abs(v) < 1e-9) return round(v, positionStep);
+                const auto origin = g.basis[12 + axis];
+                return round(origin + v, positionStep) - origin;
+            };
             if (k < 0)
             {
                 auto   ray = rayAt(p, g.camera, g.size);
@@ -322,14 +327,14 @@ namespace editor
                            ray.origin, times(ray.direction, dot(sub(pivot(g.basis), ray.origin), drag.plane) / den)),
                          delta = point(g.inv, sub(q, drag.worldAnchor), 0);
                     for (int i = 0; i < 3; ++i)
-                        t["position"][i] = t["position"][i].get<double>() + round(delta[i], .25);
+                        t["position"][i] = t["position"][i].get<double>() + positionDelta(delta[i], i);
                 }
             }
             else
             {
                 auto v = axisParameter(r.origin, r.direction, k);
                 if (v)
-                    t["position"][k] = t["position"][k].get<double>() + round(*v - drag.parameter, .25);
+                    t["position"][k] = t["position"][k].get<double>() + positionDelta(*v - drag.parameter, k);
             }
         }
         else if (g.mode == Tool::Scale)

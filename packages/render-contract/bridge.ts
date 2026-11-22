@@ -18,8 +18,13 @@ export function renderCamera(camera: Camera) {
     exposure: camera.exposure,
   };
 }
-export function createEditorRenderer(raw: any) {
+export function createEditorRenderer(raw: any, onRendered?: () => void) {
   const overrides: Record<string, unknown> = {
+    drawFrame: async () => {
+      const result = await raw.drawFrame();
+      if (result === "rendered") onRendered?.();
+      return result;
+    },
     setCamera: (camera: Camera) => raw.setViewCamera(renderCamera(camera)),
     setEnvironment: (settings: any) => {
       const { fogMode, fogColor, fogNear, fogFar, fogDensity, ...environment } =

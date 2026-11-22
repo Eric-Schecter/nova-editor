@@ -26,6 +26,7 @@ import {
   unpackProject,
 } from "../packages/editor-core/src/project";
 import { loadGLB } from "../deps/nova/web/src/ModelData.js";
+import { modelTriangleFloats } from "../deps/nova/web/src/ModelVertex.js";
 const bytes = new Uint8Array(readFileSync("tests/fixtures/model-parts.glb"));
 const allocator = () => {
   let i = 0;
@@ -88,7 +89,7 @@ test("internal node and primitive slots preserve hierarchy, local units, shared 
     const url = URL.createObjectURL(new Blob([new Uint8Array(writeGLB(doc))]));
     try {
       const loaded = await loadGLB(url);
-      assert.equal(loaded.vertices.length / 36, 12);
+      assert.equal(loaded.vertices.length / modelTriangleFloats, 12);
       close(
         loaded.baseColor,
         doc.json.materials[0].pbrMetallicRoughness.baseColorFactor,

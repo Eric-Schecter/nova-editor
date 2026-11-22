@@ -1,3 +1,4 @@
+import { tr } from "./language";
 import React, { useEffect, useRef, useState } from "react";
 import type { Transform } from "../../../packages/scene-schema/index";
 import { localMatrix } from "../../../packages/scene-schema/transforms";
@@ -165,7 +166,7 @@ export function PlacementPreview(props: Props) {
       <svg
         className="placement-preview"
         viewBox={`0 0 ${props.size.width} ${props.size.height}`}
-        aria-label="实例落点预览"
+        aria-label={tr("Placement preview", "实例落点预览")}
       >
         {foot.length === 4 && (
           <polygon
@@ -188,9 +189,9 @@ export function PlacementPreview(props: Props) {
       </svg>
       <div className={`placement-hint ${t ? "" : "invalid"}`} role="status">
         {t
-          ? `${props.drag.name} · ${t.position.map((v) => v.toFixed(2)).join(", ")} · ${preview.snapped ? `吸附 ${props.step} m` : "自由摆放"} · 松手创建`
-          : "未命中模型或地面，请调整视角"}
-        <small>模型表面 / 地面支撑 · Esc 取消 · Shift 临时切换吸附</small>
+          ? `${props.drag.name} · ${t.position.map((v) => v.toFixed(2)).join(", ")} · ${preview.snapped ? `吸附 ${props.step} m` : tr("Free placement", "自由摆放")} · 松手创建`
+          : tr("No model or ground hit. Adjust the view.", "未命中模型或地面，请调整视角")}
+        <small>{tr("Model or ground · Esc cancels · Shift toggles snap", "模型表面 / 地面支撑 · Esc 取消 · Shift 临时切换吸附")}</small>
       </div>
     </>
   );

@@ -130,6 +130,19 @@ namespace editor
             for (auto flag : {"hidden", "locked"})
                 if (n.contains(flag) && !n[flag].is_boolean())
                     throw std::runtime_error("Invalid node flag");
+            if (n.contains("previewBehavior"))
+            {
+                const auto& behavior = n.at("previewBehavior");
+                if (!behavior.is_object() || !behavior.contains("kind") || !behavior.at("kind").is_string() ||
+                    !behavior.contains("amount") || !behavior.at("amount").is_number())
+                    throw std::runtime_error("Invalid preview behavior");
+                const auto kind = behavior.at("kind").get<std::string>();
+                const auto amount = behavior.at("amount").get<double>();
+                if ((kind != "spin" && kind != "bob") || !std::isfinite(amount) ||
+                    amount < (kind == "spin" ? -360 : 0) || amount > (kind == "spin" ? 360 : 10) ||
+                    n.contains("camera") || n.contains("light"))
+                    throw std::runtime_error("Invalid preview behavior");
+            }
             for (auto spec : {std::pair<const char*, size_t>{"position", 3}, {"rotation", 4}, {"scale", 3}})
             {
                 const auto& a = n.at("transform").at(spec.first);

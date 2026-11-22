@@ -1,4 +1,5 @@
 #pragma once
+#include "Language.hpp"
 #include "Assets.hpp"
 #include <imgui.h>
 namespace editor
@@ -50,7 +51,7 @@ namespace editor
             }
             ImGui::TextDisabled("Shared resource: %zu instances", users);
             ImGui::BeginDisabled(disabled || users < 2);
-            if (ImGui::Button("Make unique"))
+            if (ImGui::Button(editor::language::text("Make unique", "独立副本")))
                 unique();
             ImGui::EndDisabled();
             ImGui::Separator();
@@ -84,13 +85,13 @@ namespace editor
                                 (*geometry)["parameters"][spec.key] = value;
                         }
                     }
-                    if (ImGui::Button("Apply geometry", {-1, 29}))
+                    if (ImGui::Button(editor::language::text("Apply geometry", "应用几何体"), {-1, 29}))
                         applyGeometry(*geometry);
                 }
             }
             else
             {
-                ImGui::TextDisabled("Material");
+                ImGui::TextDisabled("%s", editor::language::text("Material", "材质"));
                 ImGui::SetNextItemWidth(-1);
                 ImGui::InputText("##MaterialName", materialName, sizeof(materialName));
                 for (const auto& entry :
@@ -109,7 +110,7 @@ namespace editor
                 const char* alphaModes[] = {"OPAQUE", "MASK", "BLEND"};
                 auto        alpha        = material["alphaMode"].get<std::string>();
                 int         alphaIndex   = alpha == "MASK" ? 1 : alpha == "BLEND" ? 2 : 0;
-                if (ImGui::Combo("Alpha mode", &alphaIndex, alphaModes, 3))
+                if (ImGui::Combo(editor::language::text("Alpha mode", "Alpha 模式"), &alphaIndex, alphaModes, 3))
                     material["alphaMode"] = alphaModes[alphaIndex];
                 for (const char* field : {"opacity", "alphaCutoff"})
                 {
@@ -156,7 +157,7 @@ namespace editor
                     ImGui::InputTextWithHint(
                       "##TexturePath", "PNG / JPEG path", textures[i].data(), textures[i].size());
                     bool active = assets::hasTexture(*doc, assets::textureSlots[i]) && !remove[i];
-                    ImGui::TextDisabled("%s", textures[i][0] ? "Replacement pending" : active ? "Embedded" : "None");
+                    ImGui::TextDisabled("%s", textures[i][0] ? "Replacement pending" : active ? "Embedded" : editor::language::text("None", "无"));
                     ImGui::SameLine();
                     if (ImGui::SmallButton(remove[i] ? "Keep" : "Remove"))
                     {
@@ -165,7 +166,7 @@ namespace editor
                     }
                     ImGui::PopID();
                 }
-                if (ImGui::Button("Apply material", {-1, 29}))
+                if (ImGui::Button(editor::language::text("Apply material", "应用材质"), {-1, 29}))
                 {
                     auto value    = material;
                     value["name"] = materialName;

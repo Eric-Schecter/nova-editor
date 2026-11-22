@@ -93,3 +93,56 @@ test("alpha GLB expansion preserves per-slot modes, textures, mirror and sidedne
     -1,
   );
 });
+
+test("alpha recovery and scene/selection GLB export reopen preserve all slots and images", async () => {
+  const { exportGLB } = await import("../packages/asset-system/export-glb");
+  const { validateRecovery } = await import(
+    "../packages/editor-core/src/project"
+  );
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const bytes = new Uint8Array(
+    readFileSync("tests/fixtures/material-alpha/Layers.glb"),
+  );
+  const scene = emptyScene();
+  scene.name = "Alpha roundtrip";
+  scene.assets.a = { path: "assets/layers.glb", sourceSpace: true };
+  scene.nodes = [
+    {
+      id: "alpha",
+      parentId: null,
+      name: "Alpha layers",
+      assetId: "a",
+      transform: identity(),
+    },
+  ];
+  const restored = validateRecovery({
+    scene,
+    assets: { "assets/layers.glb": bytes },
+    id: "alpha-test",
+    updated: Date.now(),
+    savedSnapshot: JSON.stringify(emptyScene()),
+  });
+  const reopened = unpackProject(packProject(restored));
+  const source = readGLB(bytes);
+  for (const selected of [undefined, ["alpha"]]) {
+    const output = readGLB(
+      exportGLB(reopened.scene, (p) => reopened.assets[p], selected),
+    );
+    assert.deepEqual(output.json.materials, source.json.materials);
+    for (let i = 0; i < source.json.images.length; i++) {
+      const a = source.json.bufferViews[source.json.images[i].bufferView],
+        b = output.json.bufferViews[output.json.images[i].bufferView];
+      assert.deepEqual(
+        output.bin.slice(b.byteOffset ?? 0, (b.byteOffset ?? 0) + b.byteLength),
+        source.bin.slice(a.byteOffset ?? 0, (a.byteOffset ?? 0) + a.byteLength),
+      );
+    }
+  }
+  mkdirSync("output/alpha-roundtrip/assets", { recursive: true });
+  writeFileSync("output/alpha-roundtrip/assets/layers.glb", bytes);
+  writeFileSync("output/alpha-roundtrip/project.json", JSON.stringify(scene));
+  writeFileSync(
+    "output/alpha-roundtrip/web.glb",
+    exportGLB(scene, (p) => reopened.assets[p]),
+  );
+});

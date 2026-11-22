@@ -21,3 +21,6 @@ build-*/
 # Installed paired renderer packages and rebuildable download state
 deps/nova/
 .cache/nova/
+
+# Generated Assimp browser converter
+apps/web/public/fbx/

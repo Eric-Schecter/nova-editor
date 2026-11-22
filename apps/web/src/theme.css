@@ -792,3 +792,243 @@ header.menubar {
   gap: 6px;
   margin-bottom: 8px;
 }
+
+/* Scene workspace */
+:root {
+  --panel: #202124;
+  --field: #292b2e;
+  --line: #393b3f;
+  --muted: #a1a5ac;
+  --text: #e8e9ec;
+  --selection: #395a76;
+  --selection-line: #7bb6ee;
+}
+.workspace {
+  grid-template-columns: minmax(200px, 1fr) clamp(310px, 26vw, 400px);
+}
+.viewport-bar {
+  top: 10px;
+  left: 12px;
+  right: auto;
+  height: auto;
+  padding: 0;
+  display: block;
+  z-index: 4;
+}
+.viewport-tools {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: #202124;
+  border: 1px solid #4c4e52;
+  border-radius: 5px;
+}
+:root .viewport-tools button {
+  height: 28px;
+  min-width: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+}
+:root .viewport-tools button:hover {
+  background: var(--field);
+}
+:root .viewport-tools button[aria-pressed="true"] {
+  background: var(--selection);
+  border-color: var(--selection-line);
+}
+.viewport-tools .icon {
+  width: 17px;
+  height: 17px;
+}
+.viewport-tools .tool-space {
+  margin-inline-start: 3px;
+  font-size: 11px;
+}
+.viewport-actions {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  width: max-content;
+  max-width: min(250px, 60vw);
+  align-items: stretch;
+  flex-direction: column;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  box-shadow: 0 7px 24px #0004;
+}
+.viewport-actions[hidden] {
+  display: none;
+}
+.viewport-snap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.viewport-snap label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sidebar .panel-title {
+  min-height: 34px;
+  font-size: 13px;
+  font-weight: 650;
+  justify-content: space-between;
+}
+.sidebar .scene-toolbar {
+  display: flex;
+  float: none;
+  padding: 0;
+}
+.sidebar .scene-toolbar button {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+}
+.sidebar .scene-toolbar button:hover:not(:disabled),
+.tree-row:hover {
+  background: var(--field);
+}
+.tree-row {
+  min-height: 28px;
+  background-image: repeating-linear-gradient(to right, transparent 0 13px, #393c41 13px 14px, transparent 14px 15px);
+  background-repeat: no-repeat;
+}
+.tree-row.selected {
+  background-color: var(--selection);
+  color: #fff;
+}
+.tree-label .icon {
+  width: 15px;
+  height: 15px;
+  vertical-align: -3px;
+  margin-inline-end: 6px;
+}
+.tree-root {
+  border: 0;
+  margin: 4px 0;
+  padding: 4px 7px;
+  text-align: start;
+}
+.inspector-tabs {
+  gap: 0;
+  padding: 0 8px;
+}
+:root .inspector-tabs button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+}
+:root .inspector-tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--selection-line);
+}
+.inspector h3 {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+.inspector input {
+  font-variant-numeric: tabular-nums;
+}
+.assets.expanded {
+  height: 145px;
+}
+.asset-list {
+  align-items: flex-start;
+  padding: 8px 12px;
+  gap: 8px;
+}
+:root .asset,
+:root .asset.selected {
+  width: 104px;
+  min-width: 104px;
+  height: 93px;
+  padding: 0;
+  gap: 4px;
+  flex-direction: column;
+  border-color: transparent;
+  background: transparent;
+}
+:root .asset .asset-icon {
+  width: 100%;
+  height: 68px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--muted);
+}
+:root .asset.selected .asset-icon,
+:root .asset:hover .asset-icon {
+  border-color: var(--selection-line);
+  color: var(--text);
+}
+.asset .asset-icon .icon {
+  width: 29px;
+  height: 29px;
+}
+.asset-info,
+.asset strong {
+  max-width: 100px;
+}
+.viewport-performance {
+  border: 0;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: #202124df;
+  color: var(--text);
+}
+@media (max-width: 760px) {
+  .workspace { grid-template-columns: minmax(190px, 1fr) 245px; }
+  .viewport-bar { left: 6px; }
+  .viewport-tools button { min-width: 24px; padding-inline: 3px; }
+}
+.viewport canvas,
+.gizmo-surface {
+  inset: 0;
+  height: 100%;
+}
+.view-cube {
+  top: 14px;
+}
+.asset-preview {
+  width: 100%;
+  height: 100%;
+}
+.asset-preview {
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.transform-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  margin-block: 7px;
+}
+.transform-row > span {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.transform-row .vector label {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-inline-start: 5px;
+}
+.transform-row .vector input {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 1px 4px;
+}
+.transform-row .vector input::-webkit-inner-spin-button {
+  appearance: none;
+}

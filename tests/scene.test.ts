@@ -1,3 +1,5 @@
+import { previewWorldMatrices } from "../packages/editor-core/src/scene-preview";
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -96,4 +98,19 @@ test("Euler XYZ rotation roundtrips through quaternion, including mirrored scale
   });
   assert.ok(Math.abs(m[1] + 2) < 1e-5);
   assert.ok(Math.abs(m[4] + 3) < 1e-5);
+});
+
+test("scene preview moves model descendants without changing the authored project", () => {
+  const source = fixture();
+  source.nodes[0].previewBehavior = { kind: "spin", amount: 90 };
+  source.nodes[1].previewBehavior = { kind: "bob", amount: 2 };
+  const scene = validateScene(source);
+  const baseline = JSON.stringify(scene);
+  const posed = previewWorldMatrices(scene, 1.25).get("child")!;
+  assert.equal(posed[13], 4);
+  assert.ok(Math.abs(posed[12] - (3 * Math.cos(Math.PI / 8) - Math.sin(Math.PI / 8))) < 1e-6);
+  assert.equal(JSON.stringify(scene), baseline);
+  assert.deepEqual(validateScene(JSON.parse(baseline)), scene);
+  source.nodes[1].previewBehavior.amount = 11;
+  assert.throws(() => validateScene(source));
 });

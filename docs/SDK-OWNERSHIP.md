@@ -74,3 +74,7 @@ The editor now consumes the official paired 0.8.0 Release. The SDK owns OPAQUE/M
 Nova Render 0.7.0 owns point/spot BDPT light subpaths and photon emission. The editor consumes the paired release without shader patches, presents integrator controls and continues to own project persistence and UI.
 
 Nova Render 0.7.1 owns the dielectric transmission/visibility and radiance-linearity corrections. The editor consumes the official paired patch through the unchanged 0.7.x API.
+
+## 下一步：透明、Alpha 裁剪与双面材质
+
+当前锁定正式 Release 0.8.0，已支持光栅透明混合、裁剪和逐材质双面编辑。上游所需字段、渲染/能力约定及编辑器保存/导出接入范围见 [SDK-MATERIAL-ALPHA.md](SDK-MATERIAL-ALPHA.md)。双端 UI 已接入；光追、透明阴影、Alpha 拾取与抗锯齿限制见该文档及 SDK 能力查询。

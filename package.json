@@ -4,8 +4,8 @@
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "scripts": {
-    "dev:web": "node tools/sdk/sync-web.mjs && node tools/fixtures/environments.mjs && node --import tsx tools/fixtures/primitives.ts && node --import tsx tools/fixtures/model.ts && node --import tsx tools/fixtures/scene-objects.ts && vite apps/web --host 127.0.0.1",
-    "build:web": "node tools/sdk/sync-web.mjs && node tools/fixtures/environments.mjs && node --import tsx tools/fixtures/primitives.ts && node --import tsx tools/fixtures/model.ts && node --import tsx tools/fixtures/scene-objects.ts && tsc --noEmit && vite build apps/web",
+    "dev:web": "node tools/fbx/build-web.mjs --if-missing && node tools/sdk/sync-web.mjs && node tools/fixtures/environments.mjs && node --import tsx tools/fixtures/primitives.ts && node --import tsx tools/fixtures/model.ts && node --import tsx tools/fixtures/scene-objects.ts && vite apps/web --host 127.0.0.1",
+    "build:web": "node tools/fbx/build-web.mjs --if-missing && node tools/sdk/sync-web.mjs && node tools/fixtures/environments.mjs && node --import tsx tools/fixtures/primitives.ts && node --import tsx tools/fixtures/model.ts && node --import tsx tools/fixtures/scene-objects.ts && tsc --noEmit && vite build apps/web",
     "test": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
     "sdk:stage": "node tools/sdk/stage.mjs",
     "sdk:verify": "node tools/sdk/verify.mjs",
@@ -15,10 +15,12 @@
     "sdk:install": "node tools/sdk/install.mjs",
     "test:browser": "node tools/check-browser.mjs",
     "sdk:update": "node tools/sdk/update.mjs",
-    "sdk:sync-web": "node tools/sdk/sync-web.mjs"
+    "sdk:sync-web": "node tools/sdk/sync-web.mjs",
+    "build:fbx:web": "node tools/fbx/build-web.mjs"
   },
   "dependencies": {
     "fflate": "0.8.2",
+    "occt-import-js": "0.0.23",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },

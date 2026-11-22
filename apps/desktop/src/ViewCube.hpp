@@ -39,14 +39,14 @@ namespace editor
         auto   projectCube = [&](V3 p) {
             return ImVec2{origin.x + 60 + float(dot(p, f.right) * 23), origin.y + 52 - float(dot(p, f.up) * 23)};
         };
-        const ImU32 fills[]{IM_COL32(250, 232, 233, 255), IM_COL32(230, 242, 233, 255), IM_COL32(232, 239, 252, 255)};
+        const ImU32 fills[]{IM_COL32(42, 44, 48, 255), IM_COL32(71, 74, 80, 255), IM_COL32(54, 57, 63, 255)};
         auto        label = [&](ImVec2 center, const char* text, float font = 11.f) {
             auto size = ImGui::GetFont()->CalcTextSizeA(font, 1000, 0, text);
             draw->AddText(
               ImGui::GetFont(),
               font,
               {center.x - size.x * .5f, center.y - size.y * .5f},
-              IM_COL32(76, 90, 110, 255),
+              IM_COL32(232, 233, 236, 255),
               text);
         };
         for (const auto& view : standardViews)
@@ -68,8 +68,8 @@ namespace editor
                 center.y += points[i].y * .25f;
             }
             bool hot = interactive && insideQuad(points, mouse);
-            draw->AddConvexPolyFilled(points.data(), 4, hot ? IM_COL32(205, 223, 253, 255) : fills[view.axis]);
-            draw->AddPolyline(points.data(), 4, IM_COL32(169, 180, 195, 255), ImDrawFlags_Closed, 1);
+            draw->AddConvexPolyFilled(points.data(), 4, hot ? IM_COL32(57, 90, 118, 255) : fills[view.axis]);
+            draw->AddPolyline(points.data(), 4, hot ? IM_COL32(123, 182, 238, 255) : IM_COL32(102, 106, 114, 255), ImDrawFlags_Closed, 1);
             label(center, view.name, 10);
             if (hot)
             {

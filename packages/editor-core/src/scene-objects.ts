@@ -246,6 +246,18 @@ export function aimObject(
     roll,
   });
 }
+export function aimLightAt(scene: Scene, id: string, target: Vec) {
+  const node = scene.nodes.find((n) => n.id === id);
+  if (!node?.light || node.light.type === "point") throw Error("请选择方向光或聚光灯");
+  const origin = objectFrame(scene, id).slice(12, 15);
+  const delta = origin.map((v, axis) => v - target[axis]);
+  const parent = node.parentId ? inverse(objectFrame(scene, node.parentId)) : null;
+  const [x, y, z] = parent ? transform(parent, delta, 0) : delta;
+  if (Math.hypot(x, y, z) < 1e-6) throw Error("目标点与光源重合");
+  aimObject(scene, id, Math.atan2(x, z) * 180 / Math.PI,
+    Math.atan2(y, Math.hypot(x, z)) * 180 / Math.PI);
+}
+
 export function anglesFromFrame(m: number[]) {
   const back = norm(m.slice(8, 11)),
     right = norm(m.slice(0, 3)),

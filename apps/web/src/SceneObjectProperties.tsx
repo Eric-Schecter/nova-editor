@@ -1,3 +1,4 @@
+import { tr } from "./language";
 import { useState } from "react";
 import type {
   SceneNode,
@@ -81,11 +82,9 @@ export function SceneObjectProperties({
   );
   return (
     <fieldset className="object-fields" disabled={disabled}>
-      <h3>{node.camera ? "场景相机" : "灯光"}</h3>
-      <label className="asset-property-field">
-        局部方位角
-        <input
-          aria-label="节点方位角"
+      <h3>{node.camera ? tr("Scene camera", "场景相机") : tr("Light", "灯光")}</h3>
+      <label className="asset-property-field">{tr("Local yaw", "局部方位角")}<input
+          aria-label={tr("Node yaw", "节点方位角")}
           type="number"
           min={-180}
           max={180}
@@ -93,10 +92,8 @@ export function SceneObjectProperties({
           onChange={(e) => setYaw(Number(e.target.value))}
         />
       </label>
-      <label className="asset-property-field">
-        局部俯仰角
-        <input
-          aria-label="节点俯仰角"
+      <label className="asset-property-field">{tr("Local pitch", "局部俯仰角")}<input
+          aria-label={tr("Node pitch", "节点俯仰角")}
           type="number"
           min={-90}
           max={90}
@@ -106,28 +103,24 @@ export function SceneObjectProperties({
       </label>
       {node.camera ? (
         <>
-          <label className="asset-property-field">
-            投影
-            <select
-              aria-label="相机投影"
+          <label className="asset-property-field">{tr("Projection", "投影")}<select
+              aria-label={tr("Camera projection", "相机投影")}
               value={(component as CameraComponent).projection}
               onChange={(e) => change("projection", e.target.value)}
             >
-              <option value="perspective">透视</option>
-              <option value="orthographic">正交</option>
+              <option value="perspective">{tr("Perspective", "透视")}</option>
+              <option value="orthographic">{tr("Orthographic", "正交")}</option>
             </select>
           </label>
           {(component as CameraComponent).projection === "orthographic"
-            ? number("正交视野高度", "orthographicSize", 0.05, 80)
-            : number("目标距离", "focusDistance", 0.05, 100)}
-          {number("相机曝光", "exposure", 0.01, 16)}
-          {number("垂直视场角 FOV", "verticalFov", 1, 179, 1)}
-          {number("近裁剪面", "nearPlane", 0.0001, 1e6, 0.01)}
-          {number("远裁剪面", "farPlane", 0.0002, 1e7, 1)}
-          <label className="asset-property-field">
-            局部滚转角
-            <input
-              aria-label="相机滚转角"
+            ? number(tr("Orthographic height", "正交视野高度"), "orthographicSize", 0.05, 80)
+            : number(tr("Focus distance", "目标距离"), "focusDistance", 0.05, 100)}
+          {number(tr("Camera exposure", "相机曝光"), "exposure", 0.01, 16)}
+          {number(tr("Vertical FOV", "垂直视场角 FOV"), "verticalFov", 1, 179, 1)}
+          {number(tr("Near clip", "近裁剪面"), "nearPlane", 0.0001, 1e6, 0.01)}
+          {number(tr("Far clip", "远裁剪面"), "farPlane", 0.0002, 1e7, 1)}
+          <label className="asset-property-field">{tr("Local roll", "局部滚转角")}<input
+              aria-label={tr("Camera roll", "相机滚转角")}
               type="number"
               min={-180}
               max={180}
@@ -139,10 +132,8 @@ export function SceneObjectProperties({
         </>
       ) : (
         <>
-          <label className="asset-property-field">
-            类型
-            <select
-              aria-label="灯光类型"
+          <label className="asset-property-field">{tr("Type", "类型")}<select
+              aria-label={tr("Light type", "灯光类型")}
               value={(component as LightComponent).type}
               onChange={(e) =>
                 setComponent(
@@ -155,19 +146,19 @@ export function SceneObjectProperties({
                 )
               }
             >
-              <option value="directional">方向光</option>
-              <option value="point">点光</option>
-              <option value="spot">聚光</option>
+              <option value="directional">{tr("Directional light", "方向光")}</option>
+              <option value="point">{tr("Point light", "点光")}</option>
+              <option value="spot">{tr("Spotlight", "聚光")}</option>
             </select>
           </label>
           {(component as LightComponent).type !== "directional" &&
-            number("灯光范围（0 为无限）", "range", 0, 1e7)}
+            number(tr("Range (0 means unlimited)", "灯光范围（0 为无限）"), "range", 0, 1e7)}
           {(component as LightComponent).type === "spot" &&
             ["innerConeAngle", "outerConeAngle"].map((field, i) => (
               <label key={field} className="asset-property-field">
-                {i ? "外锥半角（度）" : "内锥半角（度）"}
+                {i ? tr("Outer cone (deg)", "外锥半角（度）") : tr("Inner cone (deg)", "内锥半角（度）")}
                 <input
-                  aria-label={i ? "外锥半角" : "内锥半角"}
+                  aria-label={i ? tr("Outer cone", "外锥半角") : tr("Inner cone", "内锥半角")}
                   type="number"
                   min={0}
                   max={89.999}
@@ -181,10 +172,8 @@ export function SceneObjectProperties({
                 />
               </label>
             ))}
-          <label className="asset-property-field">
-            颜色
-            <input
-              aria-label="节点灯光颜色"
+          <label className="asset-property-field">{tr("Color", "颜色")}<input
+              aria-label={tr("Light color", "节点灯光颜色")}
               value={hex}
               maxLength={7}
               onChange={(e) => {
@@ -194,41 +183,33 @@ export function SceneObjectProperties({
               }}
             />
           </label>
-          {number("节点灯光强度", "intensity", 0, 100)}
+          {number(tr("Light intensity", "节点灯光强度"), "intensity", 0, 100)}
           <label>
             <input
-              aria-label="节点阴影开关"
+              aria-label={tr("Cast shadows", "节点阴影开关")}
               type="checkbox"
               checked={(component as LightComponent).shadows}
               onChange={(e) => change("shadows", e.target.checked)}
-            />{" "}
-            阴影
-          </label>
-          {number("节点阴影柔和度", "softness", 0, 4, 0.1, false)}
-          <small>
-            三类灯均支持逐灯阴影。点光和聚光柔和度使用世界单位光源圆盘；仅静态不透明场景。
-          </small>
+            />{" "}{tr("Shadows", "阴影")}</label>
+          {number(tr("Shadow softness", "节点阴影柔和度"), "softness", 0, 4, 0.1, false)}
+          <small>{tr("Per-light shadows support static opaque scenes. Point and spot softness is in world units.", "三类灯均支持逐灯阴影。点光和聚光柔和度使用世界单位光源圆盘；仅静态不透明场景。")}</small>
         </>
       )}
-      <button onClick={() => onApply(component, yaw, pitch, roll)}>
-        应用节点设置
-      </button>
+      <button onClick={() => onApply(component, yaw, pitch, roll)}>{tr("Apply node settings", "应用节点设置")}</button>
       {node.camera ? (
         <>
           <p className="compact-status">
-            {node.camera.primary ? "当前主相机" : "非主相机"}
+            {node.camera.primary ? tr("Current main camera", "当前主相机") : tr("Secondary camera", "非主相机")}
           </p>
           <button onClick={() => onPrimary(!node.camera!.primary)}>
-            {node.camera.primary ? "取消主相机" : "设为主相机"}
+            {node.camera.primary ? tr("Clear main camera", "取消主相机") : tr("Set as main camera", "设为主相机")}
           </button>
-          <button onClick={onCapture} disabled={disabled || viewing}>
-            从编辑视角更新相机
-          </button>
+          <button onClick={onCapture} disabled={disabled || viewing}>{tr("Update from editor view", "从编辑视角更新相机")}</button>
           <button
             onClick={onPreview}
             disabled={disabled || !node.camera.primary}
           >
-            {viewing ? "返回编辑视角" : "预览主相机"}
+            {viewing ? tr("Return to editor view", "返回编辑视角") : tr("Preview main camera", "预览主相机")}
           </button>
           {notice && (
             <p role="alert" className="notice">
@@ -238,7 +219,7 @@ export function SceneObjectProperties({
         </>
       ) : (
         <button onClick={() => onPrimary(!node.light!.active)}>
-          {node.light!.active ? "关闭灯光" : "启用灯光"}
+          {node.light!.active ? tr("Disable light", "关闭灯光") : tr("Enable light", "启用灯光")}
         </button>
       )}
     </fieldset>

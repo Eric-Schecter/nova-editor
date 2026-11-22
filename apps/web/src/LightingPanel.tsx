@@ -1,3 +1,4 @@
+import { tr } from "./language";
 import React, { useState } from "react";
 import type { LightingSettings } from "../../../packages/editor-core/src/lighting";
 type Props = {
@@ -52,35 +53,33 @@ export function LightingPanel({
   return (
     <div className="lighting-properties">
       <div className="lighting-heading">
-        <strong>视口光照</strong>
-        <small>方向光 · 摄影棚补光</small>
+        <strong>{tr("Viewport lighting", "视口光照")}</strong>
+        <small>{tr("Directional studio light", "方向光 · 摄影棚补光")}</small>
       </div>
       <label className="light-check">
         <input
           type="checkbox"
-          aria-label="启用光照"
+          aria-label={tr("Enable lighting", "启用光照")}
           checked={enabled}
           disabled={busy}
           onChange={(e) => onEnabled(e.target.checked)}
-        />
-        启用光照
-      </label>
+        />{tr("Enable lighting", "启用光照")}</label>
       <fieldset disabled={!enabled || busy}>
-        <legend>光源</legend>
-        {slider("azimuth", "方位角", -180, 180, 0.1, "°")}
-        {slider("elevation", "高度角", 5, 85, 0.1, "°")}
+        <legend>{tr("Light source", "光源")}</legend>
+        {slider("azimuth", tr("Azimuth", "方位角"), -180, 180, 0.1, "°")}
+        {slider("elevation", tr("Elevation", "高度角"), 5, 85, 0.1, "°")}
         <label className="light-color">
-          <span>颜色</span>
+          <span>{tr("Color", "颜色")}</span>
           <div>
             <input
               type="color"
-              aria-label="光照颜色"
+              aria-label={tr("Light color", "光照颜色")}
               value={value.color}
               onChange={(e) => onChange({ ...value, color: e.target.value })}
             />
             <input
               type="text"
-              aria-label="光照颜色十六进制"
+              aria-label={tr("Light color hex", "光照颜色十六进制")}
               spellCheck={false}
               value={editing ? draft : value.color}
               onFocus={() => {
@@ -100,31 +99,27 @@ export function LightingPanel({
             />
           </div>
         </label>
-        {slider("intensity", "光照强度", 0, 10, 0.05, "")}
+        {slider("intensity", tr("Light intensity", "光照强度"), 0, 10, 0.05, "")}
       </fieldset>
       <fieldset disabled={!enabled || busy}>
-        <legend>阴影</legend>
+        <legend>{tr("Shadows", "阴影")}</legend>
         <label className="light-check">
           <input
             type="checkbox"
-            aria-label="投射阴影"
+            aria-label={tr("Cast shadows", "投射阴影")}
             checked={value.shadows}
             onChange={(e) => onChange({ ...value, shadows: e.target.checked })}
-          />
-          投射阴影
-        </label>
+          />{tr("Cast shadows", "投射阴影")}</label>
         <fieldset className="light-softness" disabled={!value.shadows}>
-          {slider("softness", "阴影柔和程度", 0, 4, 0.1, "")}
+          {slider("softness", tr("Shadow softness", "阴影柔和程度"), 0, 4, 0.1, "")}
           <div className="light-range-caption">
-            <span>锐利</span>
-            <span>柔和</span>
+            <span>{tr("Sharp", "锐利")}</span>
+            <span>{tr("Soft", "柔和")}</span>
           </div>
         </fieldset>
       </fieldset>
-      <button className="light-reset" disabled={busy} onClick={onReset}>
-        恢复默认光照
-      </button>
-      <p className="light-note">用于当前视口，不写入场景项目。</p>
+      <button className="light-reset" disabled={busy} onClick={onReset}>{tr("Reset lighting", "恢复默认光照")}</button>
+      <p className="light-note">{tr("Applies to the editor viewport.", "用于当前视口，不写入场景项目。")}</p>
     </div>
   );
 }

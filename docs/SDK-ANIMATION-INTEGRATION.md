@@ -1,6 +1,6 @@
 # Scene animation SDK integration (0.9.2)
 
-The paired SDK now supplies asset clip discovery, independent per-instance playback, manual clocks, and posed bounds/picking. Existing editor animation UI is not implemented by this SDK update.
+The paired SDK now supplies asset clip discovery, independent per-instance playback, manual clocks, and posed bounds/picking. The desktop and web editors use these APIs in the selected instance’s object properties. Animated GLBs are imported intact. The playback controls select a clip, play or pause, seek in seconds, and set speed from 0.1× to 4×. Animated scenes use the raster viewport.
 
 Use `GetAnimations(assetId)`, `Get/SetAnimationState(instanceId)`, `UpdateAnimations(deltaSeconds)`; Web uses lower camel case. Pass partial states on Web, full AnimationState on C++. Defaults are paused, clip 0, time 0, speed 1, loop true. Explicitly reset time when selecting clips. Paused seek accepts the final frame. Speed range is 0.1–4; invalid state/delta throws without changing state. Advance once in the editor frame loop; neither Window nor Web RAF advances scene animation.
 

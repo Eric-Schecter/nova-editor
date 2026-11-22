@@ -16,6 +16,7 @@ import {
   type PrimitiveType,
 } from "../packages/asset-system/index";
 import { loadGLB } from "../deps/nova/web/src/ModelData.js";
+import { modelTriangleFloats } from "../deps/nova/web/src/ModelVertex.js";
 import { emptyScene, identity } from "../packages/scene-schema/index";
 import {
   packProject,
@@ -48,7 +49,7 @@ test("six primitive GLBs: actual SDK loading, bounds, winding, normals, UVs and 
       const loaded = await loadGLB(url);
       close(loaded.sourceMinimum, spec.minimum);
       close(loaded.sourceMaximum, spec.maximum);
-      assert.equal(loaded.vertices.length / 36, spec.triangles);
+      assert.equal(loaded.vertices.length / modelTriangleFloats, spec.triangles);
     } finally {
       URL.revokeObjectURL(url);
     }

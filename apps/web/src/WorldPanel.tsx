@@ -1,3 +1,4 @@
+import { tr } from "./language";
 import { useState } from "react";
 import {
   defaultWorld,
@@ -66,27 +67,21 @@ export function WorldPanel({
     }
   }
   return (
-    <section className="world-properties" aria-label="场景环境设置">
-      <h3>场景环境</h3>
+    <section className="world-properties" aria-label={tr("Scene environment settings", "场景环境设置")}>
+      <h3>{tr("Scene environment", "场景环境")}</h3>
       <fieldset className="object-fields" disabled={busy || loading}>
-        <h3>环境贴图</h3>
+        <h3>{tr("Environment map", "环境贴图")}</h3>
         <p className="compact-status">
           {draft.environment.map
             ? draft.environment.name
-            : "默认摄影棚 · 无贴图"}
+            : tr("Default studio · No map", "默认摄影棚 · 无贴图")}
         </p>
         <div className="project-buttons">
-          <button onClick={() => void preset("studio_small_09.nenv")}>
-            摄影棚贴图
-          </button>
-          <button onClick={() => void preset("venice_sunset.nenv")}>
-            日落贴图
-          </button>
+          <button onClick={() => void preset("studio_small_09.nenv")}>{tr("Studio map", "摄影棚贴图")}</button>
+          <button onClick={() => void preset("venice_sunset.nenv")}>{tr("Sunset map", "日落贴图")}</button>
         </div>
-        <label className="field">
-          导入 .nenv
-          <input
-            aria-label="环境贴图文件"
+        <label className="field">{tr("Import .nenv", "导入 .nenv")}<input
+            aria-label={tr("Environment map file", "环境贴图文件")}
             type="file"
             accept=".nenv"
             onChange={(e) => {
@@ -112,12 +107,10 @@ export function WorldPanel({
               background: { ...w.background, mode: "color" },
             }))
           }
-        >
-          移除环境贴图
-        </button>
+        >{tr("Remove environment map", "移除环境贴图")}</button>
         <fieldset disabled={!draft.environment.map} className="object-fields">
           {field(
-            "环境旋转",
+            tr("Environment rotation", "环境旋转"),
             draft.environment.rotation,
             (v) => update("environment", "rotation", v),
             -180,
@@ -125,60 +118,50 @@ export function WorldPanel({
             1,
           )}
           {field(
-            "环境光强度",
+            tr("Environment intensity", "环境光强度"),
             draft.environment.intensity,
             (v) => update("environment", "intensity", v),
             0,
             16,
           )}
           {field(
-            "背景亮度",
+            tr("Background intensity", "背景亮度"),
             draft.environment.backgroundIntensity,
             (v) => update("environment", "backgroundIntensity", v),
             0,
             16,
           )}
         </fieldset>
-        <h3>场景背景</h3>
-        <label className="asset-property-field">
-          类型
-          <select
-            aria-label="场景背景类型"
+        <h3>{tr("Scene background", "场景背景")}</h3>
+        <label className="asset-property-field">{tr("Type", "类型")}<select
+            aria-label={tr("Background type", "场景背景类型")}
             value={draft.background.mode}
             onChange={(e) => update("background", "mode", e.target.value)}
           >
-            <option value="color">纯色</option>
-            <option value="environment" disabled={!draft.environment.map}>
-              环境贴图
-            </option>
+            <option value="color">{tr("Solid color", "纯色")}</option>
+            <option value="environment" disabled={!draft.environment.map}>{tr("Environment map", "环境贴图")}</option>
           </select>
         </label>
-        <label className="asset-property-field">
-          背景颜色
-          <input
-            aria-label="场景背景颜色"
+        <label className="asset-property-field">{tr("Background color", "背景颜色")}<input
+            aria-label={tr("Scene background color", "场景背景颜色")}
             maxLength={7}
             value={draft.background.color}
             onChange={(e) => update("background", "color", e.target.value)}
           />
         </label>
-        <h3>雾效</h3>
-        <label className="asset-property-field">
-          类型
-          <select
-            aria-label="雾效类型"
+        <h3>{tr("Fog", "雾效")}</h3>
+        <label className="asset-property-field">{tr("Type", "类型")}<select
+            aria-label={tr("Fog type", "雾效类型")}
             value={draft.fog.mode}
             onChange={(e) => update("fog", "mode", e.target.value)}
           >
-            <option value="none">关闭</option>
-            <option value="linear">线性雾</option>
-            <option value="exp2">指数平方雾</option>
+            <option value="none">{tr("Off", "关闭")}</option>
+            <option value="linear">{tr("Linear fog", "线性雾")}</option>
+            <option value="exp2">{tr("Exponential squared fog", "指数平方雾")}</option>
           </select>
         </label>
-        <label className="asset-property-field">
-          雾颜色
-          <input
-            aria-label="雾颜色"
+        <label className="asset-property-field">{tr("Fog color", "雾颜色")}<input
+            aria-label={tr("Fog color", "雾颜色")}
             maxLength={7}
             value={draft.fog.color}
             onChange={(e) => update("fog", "color", e.target.value)}
@@ -187,7 +170,7 @@ export function WorldPanel({
         {draft.fog.mode === "linear" ? (
           <>
             {field(
-              "雾起点",
+              tr("Fog start", "雾起点"),
               draft.fog.near,
               (v) => update("fog", "near", v),
               0,
@@ -195,7 +178,7 @@ export function WorldPanel({
               1,
             )}
             {field(
-              "雾终点",
+              tr("Fog end", "雾终点"),
               draft.fog.far,
               (v) => update("fog", "far", v),
               0.001,
@@ -205,7 +188,7 @@ export function WorldPanel({
           </>
         ) : draft.fog.mode === "exp2" ? (
           field(
-            "雾密度",
+            tr("Fog density", "雾密度"),
             draft.fog.density,
             (v) => update("fog", "density", v),
             0,
@@ -222,10 +205,8 @@ export function WorldPanel({
               setError(String(e));
             }
           }}
-        >
-          应用场景环境
-        </button>
-        <small>设置随项目保存；雾作用于模型与地面，天空保持原贴图。</small>
+        >{tr("Apply scene environment", "应用场景环境")}</button>
+        <small>{tr("Saved with the project. Fog affects models and ground.", "设置随项目保存；雾作用于模型与地面，天空保持原贴图。")}</small>
         {error && (
           <p role="alert" className="notice">
             {error}

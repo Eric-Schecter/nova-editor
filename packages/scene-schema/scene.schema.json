@@ -180,6 +180,12 @@
           "type": "boolean",
           "default": false
         },
+        "previewBehavior": {
+          "oneOf": [
+            {"type": "object", "required": ["kind", "amount"], "properties": {"kind": {"const": "spin"}, "amount": {"type": "number", "minimum": -360, "maximum": 360}}},
+            {"type": "object", "required": ["kind", "amount"], "properties": {"kind": {"const": "bob"}, "amount": {"type": "number", "minimum": 0, "maximum": 10}}}
+          ]
+        },
         "locked": {
           "type": "boolean",
           "default": false

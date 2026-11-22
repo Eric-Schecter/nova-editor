@@ -1,4 +1,5 @@
 #pragma once
+#include "Language.hpp"
 #include "WorldAssets.hpp"
 #include <imgui.h>
 namespace editor
@@ -60,7 +61,7 @@ namespace editor
             if (ImGui::Combo("Background type", &mode, bg, 2))
                 draft["background"]["mode"] = mode ? "environment" : "color";
             ImGui::InputText("Color ##Background", background, 8);
-            ImGui::SeparatorText("Fog");
+            ImGui::SeparatorText(editor::language::text("Fog", "雾效"));
             int         type = draft["fog"]["mode"] == "none" ? 0 : draft["fog"]["mode"] == "linear" ? 1 : 2;
             const char* modes[]{"Off", "Linear", "Exponential squared"};
             if (ImGui::Combo("Fog type", &type, modes, 3))

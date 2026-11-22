@@ -1,4 +1,5 @@
 #pragma once
+#include "Language.hpp"
 #include "Assets.hpp"
 #include "SceneObjects.hpp"
 #include <imgui.h>
@@ -72,7 +73,7 @@ namespace editor
             {
                 int         type = draft["type"] == "point" ? 1 : draft["type"] == "spot" ? 2 : 0;
                 const char* types[]{"Directional", "Point", "Spot"};
-                if (ImGui::Combo("Light type", &type, types, 3))
+                if (ImGui::Combo(editor::language::text("Light type", "灯光类型"), &type, types, 3))
                 {
                     draft["type"] = type == 1 ? "point" : type == 2 ? "spot" : "directional";
                 }
@@ -93,7 +94,7 @@ namespace editor
                 float color[3];
                 for (int k = 0; k < 3; k++)
                     color[k] = assets::linearToSRGB(draft["color"][k]);
-                ImGui::TextDisabled("Color");
+                ImGui::TextDisabled("%s", editor::language::text("Color", "颜色"));
                 ImGui::SetNextItemWidth(-1);
                 if (ImGui::ColorEdit3("##NodeLightColor", color, ImGuiColorEditFlags_DisplayHex))
                     for (int k = 0; k < 3; k++)
@@ -122,7 +123,7 @@ namespace editor
                     capture();
                 ImGui::EndDisabled();
                 ImGui::BeginDisabled(!active);
-                if (ImGui::Button(viewing ? "Return to editor view" : "Preview main camera", {-1, 29}))
+                if (ImGui::Button(viewing ? "Return to editor view" : editor::language::text("Preview main camera", "预览主相机"), {-1, 29}))
                     preview();
                 ImGui::EndDisabled();
                 if (!notice.empty())

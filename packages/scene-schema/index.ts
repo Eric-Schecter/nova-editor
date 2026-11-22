@@ -35,6 +35,7 @@ export type SceneNode = {
   light?: LightComponent;
   hidden?: boolean;
   locked?: boolean;
+  previewBehavior?: { kind: "spin" | "bob"; amount: number };
 };
 export type Scene = {
   schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -130,6 +131,13 @@ export function validateScene(value: unknown): Scene {
       throw Error("Missing asset reference");
     const range = (v: unknown, min: number, max: number) =>
       typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
+    if (node.previewBehavior !== undefined) {
+      const behavior = node.previewBehavior;
+      if (!record(behavior) || (behavior.kind !== "spin" && behavior.kind !== "bob") ||
+          !range(behavior.amount, behavior.kind === "spin" ? -360 : 0, behavior.kind === "spin" ? 360 : 10) ||
+          node.camera !== undefined || node.light !== undefined)
+        throw Error("Invalid preview behavior");
+    }
     if (
       [node.assetId, node.camera, node.light].filter((x) => x !== undefined)
         .length > 1

@@ -16,6 +16,7 @@ try {
     errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("dialog", (d) => d.accept());
+  await page.addInitScript(() => localStorage.setItem("nova-editor.language", "zh"));
   await page.goto(process.env.NOVA_EDITOR_URL || "http://127.0.0.1:5223");
   await page
     .locator('input[accept=".zip"]')

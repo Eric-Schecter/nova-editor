@@ -19,6 +19,7 @@ import {
   sceneGlyphs,
   captureCamera,
   aimObject,
+  aimLightAt,
   objectFrame,
 } from "../packages/editor-core/src/scene-objects";
 import { EditorHistory } from "../packages/editor-core/src/index";
@@ -175,4 +176,21 @@ test("invalid components reject and camera roll is preserved without corrupting 
     before = h.scene;
   assert.throws(() => h.commit((s) => (s.nodes[0].camera!.focusDistance = 0)));
   assert.deepEqual(h.scene, before);
+});
+
+test("light target picks aim accurately through a rotated and scaled parent", () => {
+  const s = scene();
+  const parent = { id: "aim-parent", name: "Parent", parentId: null,
+    transform: {...identity(), position: [3, 1, -2], rotation: eulerQuaternion([12, 50, 0]), scale: [2, 3, .5]} };
+  const lamp = createLight("aim-lamp", "spot");
+  lamp.parentId = parent.id;
+  lamp.transform.position = [1, 2, 3];
+  s.nodes.push(parent, lamp);
+  const origin = objectFrame(s, lamp.id).slice(12, 15);
+  const target = [-2, 0, 5];
+  aimLightAt(s, lamp.id, target);
+  const frame = objectFrame(s, lamp.id);
+  assert.ok(dot(frame.slice(8, 11), norm(sub(origin, target))) > 1 - 1e-8);
+  assert.deepEqual(frame.slice(12, 15), origin);
+  assert.throws(() => aimLightAt(s, lamp.id, origin), /重合/);
 });

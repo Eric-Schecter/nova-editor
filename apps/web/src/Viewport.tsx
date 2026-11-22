@@ -1,3 +1,4 @@
+import { tr } from "./language";
 import { sceneGlyphs } from "../../../packages/editor-core/src/scene-objects";
 import {
   selectionGizmo,
@@ -46,6 +47,9 @@ type Props = {
   scene: Scene;
   resourceDrag: ResourceDrag | null;
   snap: boolean;
+  moveSnap: boolean;
+  aimLight: boolean;
+  onAimLight: (target?: number[]) => void;
   step: number;
   onResourceEnd: (consumed: boolean) => void;
   onPlace: (assetId: string, t: Transform, name: string) => void;
@@ -53,6 +57,8 @@ type Props = {
   onFrame: (all: boolean) => void;
   selection: string | null;
   selections: string[];
+  tool: Mode | "select";
+  onTool: (tool: Mode | "select") => void;
   space: TransformSpace;
   onSpace: (space: TransformSpace) => void;
   onError: (error: string) => void;
@@ -71,11 +77,12 @@ type Props = {
 };
 const colors = ["#f16369", "#7bda93", "#68a8ff"];
 export function Viewport(props: Props) {
-  const [mode, setMode] = useState<Mode>("translate"),
-    [panTool, setPanTool] = useState(false),
+  const mode = props.tool === "select" ? "translate" : props.tool;
+  const [panTool, setPanTool] = useState(false),
     [size, setSize] = useState<Size>({ width: 1, height: 1 }),
     [hot, setHot] = useState<number | null>(null),
     [dragging, setDragging] = useState(false);
+  useEffect(() => setPanTool(false), [props.tool]);
   const svg = useRef<SVGSVGElement>(null),
     drag = useRef<
       | (Drag & {
@@ -96,7 +103,7 @@ export function Viewport(props: Props) {
     latest = useRef(props);
   latest.current = props;
   const selectionKey = props.selections.join("|");
-  const selectionGeometry = props.readOnly
+  const selectionGeometry = props.readOnly || props.tool === "select"
     ? null
     : selectionGizmo(
         props.scene,
@@ -159,6 +166,11 @@ export function Viewport(props: Props) {
     const key = (e: KeyboardEvent) => {
       const p = latest.current;
       if (p.resourceDrag || p.readOnly) return;
+      if (e.key === "Escape" && p.aimLight) {
+        e.preventDefault();
+        p.onAimLight();
+        return;
+      }
       if (e.key === "Escape" && drag.current) {
         e.preventDefault();
         cancel();
@@ -209,7 +221,7 @@ export function Viewport(props: Props) {
         ];
         if (next) {
           e.preventDefault();
-          setMode(next);
+          p.onTool(next);
           setPanTool(false);
         }
       }
@@ -264,6 +276,18 @@ export function Viewport(props: Props) {
     }
     if (e.button !== 0) return;
     e.preventDefault();
+    if (props.aimLight) {
+      const ray = rayAt(p, props.camera, size);
+      const includeIds = props.scene.nodes
+        .filter(n => n.assetId && !inheritedFlag(props.scene, n.id, "hidden"))
+        .map(n => n.id);
+      const hit = includeIds.length ? props.renderer.current?.pickScene({ ...ray, includeIds }) : null;
+      const t = Math.abs(ray.direction[1]) > 1e-6 ? -ray.origin[1] / ray.direction[1] : -1;
+      const target = hit?.position ?? (t > 0 ? ray.origin.map((v, i) => v + t * ray.direction[i]) : null);
+      if (target) props.onAimLight(target);
+      else props.onError(tr("Click a model surface or the ground.", "请点击模型表面或地面"));
+      return;
+    }
     const hit = geometry ? hitGizmo(geometry, p) : null;
     if (hit !== null && geometry) {
       const next = beginDrag(geometry, hit, p);
@@ -318,6 +342,9 @@ export function Viewport(props: Props) {
       );
     }
   };
+  const dragTransform = (active: Drag, p: Point, shift: boolean) =>
+    updateDrag(active, p, active.g.mode === "translate" ? props.moveSnap !== shift : shift,
+      props.step, props.space === "world");
   const move = (e: React.PointerEvent<SVGSVGElement>) => {
     const p = pointer(e);
     if (orbit.current?.id === e.pointerId) {
@@ -347,7 +374,7 @@ export function Viewport(props: Props) {
           selectionEdits(
             drag.current.base,
             drag.current.frame,
-            updateDrag(drag.current, p, e.shiftKey),
+            dragTransform(drag.current, p, e.shiftKey),
           ),
         );
       } catch (error) {
@@ -370,7 +397,7 @@ export function Viewport(props: Props) {
           selectionEdits(
             active.base,
             active.frame,
-            updateDrag(active, pointer(e), e.shiftKey),
+            dragTransform(active, pointer(e), e.shiftKey),
           ),
         );
       } catch (error) {
@@ -417,7 +444,7 @@ export function Viewport(props: Props) {
         ref={svg}
         className="gizmo-surface"
         tabIndex={0}
-        aria-label="场景交互视口"
+        aria-label={tr("Scene viewport", "场景交互视口")}
         viewBox={`0 0 ${size.width} ${size.height}`}
         onPointerDown={down}
         onPointerMove={move}
@@ -432,7 +459,7 @@ export function Viewport(props: Props) {
         }}
         onContextMenu={(e) => e.preventDefault()}
         style={{
-          cursor: panTool
+          cursor: props.aimLight ? "crosshair" : panTool
             ? "grab"
             : dragging || hot !== null
               ? "move"
@@ -443,7 +470,7 @@ export function Viewport(props: Props) {
       >
         <g
           fill="none"
-          stroke="#f0c55a"
+          stroke="#7bb6ee"
           strokeWidth="1.2"
           opacity=".65"
           pointerEvents="none"
@@ -454,8 +481,9 @@ export function Viewport(props: Props) {
         </g>
         {!props.readOnly &&
           sceneGlyphs(props.scene, size.width / size.height).map((g) => {
+            const selected = props.selections.includes(g.id);
             const p = project(g.position, props.camera, size),
-              color = props.selections.includes(g.id)
+              color = selected
                 ? "#f0c55a"
                 : g.type === "camera"
                   ? "#6396d5"
@@ -468,7 +496,7 @@ export function Viewport(props: Props) {
                 stroke={color}
                 fill="none"
               >
-                {g.lines.map(([a, b], k) => {
+                {selected && g.lines.map(([a, b], k) => {
                   const x = project(a, props.camera, size),
                     y = project(b, props.camera, size);
                   return x && y ? (
@@ -477,17 +505,17 @@ export function Viewport(props: Props) {
                 })}
                 {p && (
                   <>
-                    <circle cx={p.x} cy={p.y} r={6} fill={color} />
-                    <text
+                    <circle cx={p.x} cy={p.y} r={selected ? 5 : 3} fill={color} />
+                    {selected && <text
                       x={p.x + 10}
                       y={p.y - 8}
                       fill={color}
                       stroke="none"
                       fontSize="12"
                     >
-                      {g.type === "camera" ? "相机" : "方向光"}
-                      {g.active ? " · 主" : ""}
-                    </text>
+                      {g.type === "camera" ? tr("Camera", "相机") : tr("Light", "灯光")}
+                      {g.active ? tr("· Main", "· 主") : ""}
+                    </text>}
                   </>
                 )}
               </g>
@@ -585,7 +613,7 @@ export function Viewport(props: Props) {
       <svg
         className="world-tripod"
         viewBox="0 0 100 90"
-        aria-label="世界坐标系 X Y Z"
+        aria-label={tr("World axes X Y Z", "世界坐标系 X Y Z")}
       >
         {[0, 1, 2].map((k) => {
           const a = [0, 0, 0];
@@ -618,16 +646,16 @@ export function Viewport(props: Props) {
       </svg>
       <div
         className="view-cube"
-        aria-label="视图立方体"
+        aria-label={tr("View cube", "视图立方体")}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <svg viewBox="0 0 120 84" aria-label="相机朝向">
+        <svg viewBox="0 0 120 84" aria-label={tr("Camera orientation", "相机朝向")}>
           {cubeFaces(props.camera).map((face) => (
             <g
               key={face.title}
               role="button"
               tabIndex={dragging || props.readOnly ? -1 : 0}
-              aria-label={face.title}
+              aria-label={tr((face.sign > 0 ? ["Right", "Top", "Front"] : ["Left", "Bottom", "Back"])[face.axis], face.title)}
               onClick={() => {
                 if (!dragging && !props.readOnly)
                   props.onCamera({
@@ -655,10 +683,10 @@ export function Viewport(props: Props) {
             >
               <polygon
                 points={face.points.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill={["#fae8e9", "#e6f2e9", "#e8effc"][face.axis]}
+                fill={["#2a2c30", "#474a50", "#36393f"][face.axis]}
               />
               <text x={face.center.x} y={face.center.y + 4} textAnchor="middle">
-                {face.label}
+                {tr((face.sign > 0 ? ["R", "T", "F"] : ["L", "B", "B"])[face.axis], face.label)}
               </text>
             </g>
           ))}

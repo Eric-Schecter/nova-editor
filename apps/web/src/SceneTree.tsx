@@ -1,4 +1,6 @@
+import { tr } from "./language";
 import { useState, useEffect } from "react";
+import { Icon } from "./Icon";
 import type { Scene } from "../../../packages/scene-schema/index";
 import { inheritedFlag } from "../../../packages/editor-core/src/hierarchy";
 export type TreeCommand =
@@ -106,22 +108,22 @@ export function SceneTree({
     }
   };
   const actions: [TreeCommand, string][] = [
-    ["group", "分组"],
-    ["ungroup", "解组"],
-    ["duplicate", "复制子树"],
-    ["delete", "删除"],
-    ["hide", "隐藏"],
-    ["show", "显示"],
-    ["lock", "锁定"],
-    ["unlock", "解锁"],
-    ["up", "上移"],
-    ["down", "下移"],
+    ["group", tr("Group", "分组")],
+    ["ungroup", tr("Ungroup", "解组")],
+    ["duplicate", tr("Duplicate subtree", "复制子树")],
+    ["delete", tr("Delete", "删除")],
+    ["hide", tr("Hide", "隐藏")],
+    ["show", tr("Show", "显示")],
+    ["lock", tr("Lock", "锁定")],
+    ["unlock", tr("Unlock", "解锁")],
+    ["up", tr("Move up", "上移")],
+    ["down", tr("Move down", "下移")],
   ];
   return (
-    <div className="scene-tree" aria-label="场景树">
+    <div className="scene-tree" aria-label={tr("Scene tree", "场景树")}>
       <input
-        aria-label="搜索场景节点"
-        placeholder="搜索节点…"
+        aria-label={tr("Search scene nodes", "搜索场景节点")}
+        placeholder={tr("Search nodes…", "搜索节点…")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
@@ -138,7 +140,7 @@ export function SceneTree({
       </div>
       <div
         className="tree-root"
-        title="拖到此处移至根级；行中部设为子节点，上下边缘排序。Ctrl/Cmd 多选，Shift 连选。"
+        title={tr("Drop here to move to root. Drop on a row to reparent, or on its edges to reorder.", "拖到此处移至根级；行中部设为子节点，上下边缘排序。Ctrl/Cmd 多选，Shift 连选。")}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("application/x-nova-nodes"))
             e.preventDefault();
@@ -149,9 +151,7 @@ export function SceneTree({
           if (ids && !disabled) onMove(ids, null);
           setDrop("");
         }}
-      >
-        场景根级
-      </div>
+      >{tr("Scene root", "场景根级")}</div>
       <div role="tree" aria-multiselectable="true">
         {visible.map(({ id, depth }) => {
           const n = nodes.get(id)!,
@@ -169,7 +169,7 @@ export function SceneTree({
                 }
                 tabIndex={0}
                 className={`tree-row ${selection.includes(id) ? "selected" : ""} ${hidden ? "tree-hidden" : ""} ${drop.startsWith(id + ":") ? "drop-" + drop.split(":").pop() : ""}`}
-                style={{ paddingLeft: 6 + depth * 14 }}
+                style={{ paddingLeft: 6 + depth * 15, backgroundSize: `${depth * 15}px 100%` }}
                 draggable={!disabled && !locked && renaming !== id}
                 onClick={(e) => choose(id, e)}
                 onDoubleClick={() => {
@@ -255,7 +255,7 @@ export function SceneTree({
               >
                 <button
                   className="tree-fold"
-                  aria-label={`${collapsed.has(id) ? "展开" : "折叠"} ${n.name}`}
+                  aria-label={`${collapsed.has(id) ? tr("Expand", "展开") : tr("Collapse", "折叠")} ${n.name}`}
                   disabled={!children}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -271,7 +271,7 @@ export function SceneTree({
                 {renaming === id ? (
                   <input
                     autoFocus
-                    aria-label="重命名节点"
+                    aria-label={tr("Rename node", "重命名节点")}
                     value={draft}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setDraft(e.target.value)}
@@ -287,18 +287,18 @@ export function SceneTree({
                   />
                 ) : (
                   <span className="tree-label">
-                    {n.camera ? "▣" : n.light ? "☼" : n.assetId ? "◇" : "▧"}{" "}
+                    <Icon name={n.camera ? "camera" : n.light ? "light" : n.assetId ? "cube" : "folder"} />
                     {n.name}
                     {n.camera?.primary
-                      ? " · 主相机"
+                      ? tr("· Main camera", "· 主相机")
                       : n.light?.active
-                        ? " · 场景光源"
+                        ? tr("· Scene light", "· 场景光源")
                         : ""}
                   </span>
                 )}
                 <button
                   className="tree-flag"
-                  aria-label={`${n.hidden ? "显示" : "隐藏"} ${n.name}`}
+                  aria-label={`${n.hidden ? tr("Show", "显示") : tr("Hide", "隐藏")} ${n.name}`}
                   disabled={disabled || locked}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -306,11 +306,11 @@ export function SceneTree({
                     onCommandForNode(n.hidden ? "show" : "hide", id);
                   }}
                 >
-                  {hidden ? "隐" : "显"}
+                  {hidden ? tr("H", "隐") : tr("V", "显")}
                 </button>
                 <button
                   className="tree-flag"
-                  aria-label={`${n.locked ? "解锁" : "锁定"} ${n.name}`}
+                  aria-label={`${n.locked ? tr("Unlock", "解锁") : tr("Lock", "锁定")} ${n.name}`}
                   disabled={
                     disabled ||
                     !!(n.parentId && inheritedFlag(scene, n.parentId, "locked"))
@@ -321,7 +321,7 @@ export function SceneTree({
                     onCommandForNode(n.locked ? "unlock" : "lock", id);
                   }}
                 >
-                  {locked ? "锁" : "·"}
+                  {locked ? tr("L", "锁") : "·"}
                 </button>
               </div>
               {menu === id && (
@@ -333,9 +333,7 @@ export function SceneTree({
                       setDraft(n.name);
                       setMenu(null);
                     }}
-                  >
-                    重命名
-                  </button>
+                  >{tr("Rename", "重命名")}</button>
                   {actions.map(([c, t]) => (
                     <button
                       role="menuitem"
@@ -346,7 +344,7 @@ export function SceneTree({
                       {t}
                     </button>
                   ))}
-                  <button onClick={() => setMenu(null)}>关闭菜单</button>
+                  <button onClick={() => setMenu(null)}>{tr("Close menu", "关闭菜单")}</button>
                 </div>
               )}
             </div>
@@ -355,10 +353,8 @@ export function SceneTree({
       </div>
       <small
         className="tree-help"
-        title="Ctrl/Cmd 多选，Shift 连选。多选可整体变换，局部坐标使用最后选中节点的朝向。"
-      >
-        已选 {selection.length} 个
-      </small>
+        title={tr("Ctrl/Cmd toggles selection, Shift selects a range. Local transform uses the active node.", "Ctrl/Cmd 多选，Shift 连选。多选可整体变换，局部坐标使用最后选中节点的朝向。")}
+      >{tr("Selected", "已选")}{selection.length}{tr("", "个")}</small>
     </div>
   );
   function onCommandForNode(c: TreeCommand, id: string) {

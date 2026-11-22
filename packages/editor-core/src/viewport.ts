@@ -305,13 +305,18 @@ export function beginDrag(g: Gizmo, k: number, start: Point): Drag | null {
   if (vector === null || parameter === null) return null;
   return { g, axis: k, start, parameter, vector, plane, worldAnchor: anchor };
 }
-export function updateDrag(drag: Drag, p: Point, snap = false): Transform {
+export function updateDrag(drag: Drag, p: Point, snap = false, positionStep = 0.25, alignWorldGrid = false): Transform {
   const { g, axis: k } = drag,
     t = structuredClone(g.t),
     { o, d } = localRay(g, p),
     round = (v: number, step: number) =>
       snap ? Math.round(v / step) * step : v;
   if (g.mode === "translate") {
+    const positionDelta = (v: number, axis: number) => {
+      if (!snap || !alignWorldGrid || Math.abs(v) < 1e-9) return round(v, positionStep);
+      const origin = g.basis[12 + axis];
+      return round(origin + v, positionStep) - origin;
+    };
     if (k < 0) {
       const ray = rayAt(p, g.camera, g.size),
         den = dot(ray.direction, drag.plane);
@@ -326,12 +331,12 @@ export function updateDrag(drag: Drag, p: Point, snap = false): Transform {
           delta = transform(g.inv, sub(point, drag.worldAnchor), 0);
         t.position = add(
           t.position,
-          delta.map((v) => round(v, 0.25)),
+          delta.map(positionDelta),
         );
       }
     } else {
       const value = axisParameter(o, d, k);
-      if (value !== null) t.position[k] += round(value - drag.parameter, 0.25);
+      if (value !== null) t.position[k] += positionDelta(value - drag.parameter, k);
     }
   } else if (g.mode === "scale") {
     if (k < 0) {

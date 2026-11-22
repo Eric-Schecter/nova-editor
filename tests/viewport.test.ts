@@ -109,3 +109,18 @@ test("drag previews commit once, cancel restores exactly, and no-op keeps redo",
   h.finishPreview();
   assert.equal(h.canRedo, true);
 });
+
+test("position snapping aligns the moved axis to the world grid and preserves untouched axes", () => {
+  const s = scene();
+  s.nodes[0].transform.position = [.31, .22, .17];
+  const g = gizmoFor(s, "one", "translate", camera, size)!;
+  const start = [g.radius * .8, 0, 0];
+  const drag = beginDrag(g, 0, screen(g, start))!;
+  const end = screen(g, [start[0] + .22, 0, 0]);
+  const world = updateDrag(drag, end, true, .5, true);
+  const local = updateDrag(drag, end, true, .5, false);
+  close(world.position[0], .5);
+  close(world.position[1], .22);
+  close(world.position[2], .17);
+  close(local.position[0], .31);
+});

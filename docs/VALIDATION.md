@@ -285,3 +285,21 @@ MTL_DEBUG_LAYER=1 ./build/editor_layout_render_test resources/viewport tests/fix
 - Chrome 实际创建三类灯、打开阴影；逐个关闭点光和聚光阴影均产生像素差异，撤销后标志恢复。ZIP 导出为 v7，重开后阴影勾选和锥角保留。
 - 上游 Metal/Vulkan/WebGPU 图像检查覆盖软硬阴影、全局/逐物体开关、遮挡物移动、光源背后物体不误投影、范围/锥角排除和混合灯逐灯阴影开关。点光/聚光使用有限 BVH 射线和世界空间光源圆盘；仅支持静态不透明实例。
 - DX12 shader 已编译为 DXIL，Windows 实机验证按用户要求延期；0.5.0 不含 Windows SDK。
+
+## 2026-11-17：双端 GLB 场景导出
+
+- 桌面 File 与网页文件菜单接入选中子树/完整场景导出。必要祖先以空节点保留，局部 TRS 不烘焙丢失；父子重叠多选去重。共享资产复用 mesh/material/texture，实例复制节点图；重新映射 accessor、bufferView、材质槽、贴图、图片、sampler，合并 BIN。旧归一化模型额外保留归一化节点。
+- 新增 TS/C++ 导出器与同一输入/预期 GLB 夹具，逐项比较 JSON 和 BIN。覆盖非等比/镜像父变换、多实例、多材质、两份资源的贴图索引、内嵌 PNG 字节、子树与祖先、空场景、旧归一化，以及拒绝缺资源/动画/未知扩展。额外 TS 测试覆盖相机、聚光和 required 材质扩展。既有78项共享测试加3项导出测试；11项CTest通过（包含跨端导出对照）。
+- 网页类型检查与59模块生产构建通过。Chrome真实打开模型结构示例，文件菜单包含两个导出入口，下载得到 `Downloads/scene.glb`；读回13节点、3网格、3材质、1图片，复制到 `output/glb-browser-export/`。浏览器 download 事件的自动化等待超时，后续调试连接无法重新附着；不把选中对象菜单点击或页面截图计为已验收。选中范围与双端数据一致性由上述合同测试验证。
+- 已验证导出文件能由正式Nova SDK重新加载：48个三角形，层级/材质/贴图仍包含在单GLB中。原生GPU最终结果见后续追加。Windows/Linux没有本次实机测试。
+- 原生/Web均拒绝动画、蒙皮、自定义GLB块、外部图片及不支持的扩展，而非静默丢失。相机及punctual灯写入标准字段；Nova相对光强、隐藏/锁定与阴影extras不保证第三方工具呈现一致。环境贴图/背景/雾及编辑器辅助体不作为模型导出；项目包仍是完整编辑状态格式。未改变SDK版本或文件。
+- 最终：网页真实下载GLB由桌面Metal编辑器重新打开并渲染30帧，Metal API Validation错误0；最终原生Release构建、类型检查、11项CTest及205项SDK文件校验通过。
+
+## 2026-11-17：0.8 正式来源与 Alpha 材质往返收尾
+
+- 使用现有本机代理成功从官方 GitHub Release v0.8.0 安装 native/Web 配对包；锁来源从 local-package 切换 github-release，干净提交3fa5679c26fd12b28e078ca522779cce7a2a5dc8，Release ID448544277。正式包与原本地包源码提交不同，未冒称仅改URL；已重新配置/构建、检查221个文件并完成离线重放。
+- 更新README与SDK材质/分工说明，明确光栅OIT、MASK/双面、光追、阴影、拾取及AA限制，旧0.7接口核对标为历史。
+- 新增网页业务层恢复记录→项目ZIP往返→完整/选中GLB导出重开的测试，逐项比较材质JSON和图片字节。原生使用同一Layer夹具做真实磁盘SaveProject/SaveRecovery/ReadRecovery，再导出完整/选中GLB，与网页参考输出JSON/BIN完全一致；夹具随仓库保存，原生测试不依赖先运行JS。
+- 85项共享测试、11项CTest、原生Release构建、网页类型检查与生产构建通过；221项SDK校验通过。桌面保存项目重开Metal渲染30帧，validation errors为0。另对导出GLB执行实际SDK加载/渲染。
+- Chrome生产页面可打开；本机浏览器扩展的本地文件权限阻止filechooser上传，未修改安全/访问设置。不把本轮浏览器全流程点击、IndexedDB刷新恢复或截图算作已验证；网页保存/恢复/导出内容由业务层及双端合同测试覆盖。Windows/Linux本轮未实机验证。
+- 导出的 `native.glb` 作为新资产重开，Metal实际再渲染30帧，validation errors为0；保留8个三角形的透明/裁剪/双面夹具内容。

@@ -5,10 +5,294 @@ void require(bool v, const char* m)
     if (!v)
         throw std::runtime_error(m);
 }
-int main()
+int main(int argc, char** argv)
 {
     try
     {
+        if (argc == 3 && std::string(argv[1]) == "--scene-preview")
+        {
+            Editor editor;
+            const auto source = std::filesystem::absolute(argv[2]);
+            editor.helperRoot = std::filesystem::absolute("resources/viewport");
+            editor.assetRoot = std::filesystem::temp_directory_path() / uuid();
+            std::filesystem::create_directories(editor.assetRoot);
+            std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", source.string().c_str());
+            editor.importModel();
+            const auto model = std::find_if(editor.history.scene["nodes"].begin(), editor.history.scene["nodes"].end(),
+                [](const auto& node) { return node.contains("assetId"); });
+            require(model != editor.history.scene["nodes"].end(), "Fixture has no renderable model");
+            const auto id = model->at("id").get<std::string>();
+            editor.change([](auto& scene) {
+                scene["nodes"][0]["previewBehavior"] = {{"kind", "bob"}, {"amount", 1}};
+            });
+            render::WindowConfig config;
+            config.width = 640;
+            config.height = 480;
+            config.title = "Nova scene preview verification";
+            config.renderer.api = render::GraphicsAPI::Metal;
+            editor::RenderWindow window(config);
+            editor.window = &window;
+            editor.syncScene();
+            const auto authored = editor.history.scene;
+            const auto original = window.GetSceneInstanceBounds(id);
+            editor.toggleScenePreview();
+            int frames = 0;
+            for (int attempt = 0; attempt < 60 && frames < 8 && window.PollEvents(); ++attempt)
+            {
+                editor.advanceScenePreview(frames == 0 && editor.runtimeSeconds == 0 ? .25f : 0.f);
+                if (window.DrawFrame() == render::FrameResult::Rendered) ++frames;
+            }
+            const auto posed = window.GetSceneInstanceBounds(id);
+            editor.toggleScenePreview();
+            const auto restored = window.GetSceneInstanceBounds(id);
+            window.WaitIdle();
+            require(frames == 8 && window.ValidationErrorCount() == 0, "Scene preview rendering failed");
+            require(original && posed && restored &&
+                std::abs(posed->minimum[1] - original->minimum[1] - 1.f) < .001f &&
+                restored->minimum == original->minimum && editor.history.scene == authored,
+                "Scene preview did not move and restore the model");
+            std::filesystem::remove_all(editor.assetRoot);
+            std::cout << "Scene preview: 8 Metal frames, model moved and restored, no validation errors\n";
+            return 0;
+        }
+        if (argc == 5 && (std::string(argv[1]) == "--animated-export" ||
+                          std::string(argv[1]) == "--lit-animated-export"))
+        {
+            const bool lit = std::string(argv[1]) == "--lit-animated-export";
+            const auto source = std::filesystem::absolute(argv[2]);
+            const auto output = std::filesystem::absolute(argv[3]);
+            std::filesystem::create_directories(output);
+            Editor editor;
+            editor.helperRoot = std::filesystem::absolute(argv[4]);
+            editor.assetRoot = output;
+            std::string first;
+            if (lit)
+            {
+                std::snprintf(editor.projectPath, sizeof(editor.projectPath), "%s", source.string().c_str());
+                editor.open();
+                first = "group";
+            }
+            else
+            {
+                std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", source.string().c_str());
+                editor.importModel();
+                first = editor.selected;
+                editor.change([&](auto& scene) {
+                    auto duplicate = scene["nodes"][0];
+                    duplicate["id"] = "second-rig";
+                    duplicate["name"] = "Second Samba";
+                    duplicate["transform"]["position"][0] = 180;
+                    scene["nodes"].push_back(duplicate);
+                });
+            }
+            const auto authored = editor.history.scene;
+            const auto assetDirectory = editor.assetRoot;
+            const auto load = [&](const std::string& path) {
+                return editor::assets::readBytes(assetDirectory / path);
+            };
+            render::WindowConfig config;
+            config.width = 960;
+            config.height = 640;
+            config.title = "Nova animated GLB export verification";
+            config.renderer.api = render::GraphicsAPI::Metal;
+            editor::RenderWindow window(config);
+            editor.window = &window;
+            for (bool selected : {true, false})
+            {
+                const auto path = output / (selected ? "selected.glb" : "scene.glb");
+                const auto glb = editor::assets::exportGLB(authored, load,
+                    selected ? std::optional<std::vector<std::string>>{{first}} : std::nullopt);
+                const auto doc = editor::assets::readGLB(glb).json;
+                const size_t count = (lit || selected) ? 1 : 2;
+                require(doc["skins"].size() == count, "Export lost skins");
+                require(doc["animations"].size() == count, "Export lost clips");
+                if (lit)
+                    require(doc["extensions"]["KHR_lights_punctual"]["lights"][0]["type"] == "spot", "Export lost spotlight");
+                require(doc["skins"][0]["joints"].size() == 52, "Export lost joints");
+                if (count == 2)
+                    require(doc["skins"][0]["joints"][0] != doc["skins"][1]["joints"][0],
+                        "Exported rigs share mutable joints");
+                {
+                    std::ofstream stream(path, std::ios::binary);
+                    stream.write(reinterpret_cast<const char*>(glb.data()), glb.size());
+                    require(bool(stream), "Cannot save exported GLB");
+                }
+                editor.history.replace(editor::emptyScene());
+                editor.assetRoot = output;
+                editor.select("");
+                editor.playingAnimations.clear();
+                std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", path.string().c_str());
+                editor.importModel();
+                const auto actor = editor.selected;
+                editor.syncScene();
+                if (lit)
+                {
+                    editor.syncSceneObjects();
+                    const auto lamps = window.GetLights();
+                    require(lamps.size() == 1 && lamps[0].type == render::LightType::Spot &&
+                        lamps[0].castShadow && std::abs(lamps[0].position[0] + 1.1f) < .001f &&
+                        std::abs(lamps[0].intensity - 34.f) < .001f,
+                        "Reimport did not restore the editable spotlight");
+                }
+                const auto before = window.GetSceneInstanceBounds(actor);
+                auto state = window.GetAnimationState(actor);
+                state.playing = true;
+                window.SetAnimationState(actor, state);
+                editor.playingAnimations.insert(actor);
+                int frames = 0;
+                for (int attempt = 0; attempt < 90 && frames < 20 && window.PollEvents(); ++attempt)
+                {
+                    editor.advanceAnimations(1.f / 24);
+                    if (window.DrawFrame() == render::FrameResult::Rendered) ++frames;
+                }
+                window.WaitIdle();
+                const auto after = window.GetSceneInstanceBounds(actor);
+                require(frames == 20 && window.ValidationErrorCount() == 0 && before && after &&
+                    (before->minimum != after->minimum || before->maximum != after->maximum) &&
+                    window.GetAnimationState(actor).time > .6,
+                    "Exported GLB did not animate after reimport");
+                std::cout << path.filename().string() << ": 20 Metal frames, pose changed\n";
+            }
+            return 0;
+        }
+        if (argc == 5 && std::string(argv[1]) == "--fbx-playback")
+        {
+            const auto source = std::filesystem::absolute(argv[2]);
+            const auto output = std::filesystem::absolute(argv[3]);
+            std::filesystem::create_directories(output);
+            Editor editor;
+            editor.fbxConversion = true;
+            editor.helperRoot = std::filesystem::absolute(argv[4]);
+            editor.assetRoot = output;
+            const auto glb = output / "converted.glb";
+            std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", source.string().c_str());
+            std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", glb.string().c_str());
+            editor.convertModel();
+            std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", glb.string().c_str());
+            editor.importModel();
+            const auto id = editor.selected;
+            const auto assetId = editor.history.scene["nodes"][0]["assetId"].get<std::string>();
+            render::WindowConfig config;
+            config.width = 960;
+            config.height = 640;
+            config.title = "Nova FBX playback verification";
+            config.renderer.api = render::GraphicsAPI::Metal;
+            editor::RenderWindow window(config);
+            editor.window = &window;
+            editor.syncScene();
+            require(!window.GetAnimations(assetId).empty(), "Converted FBX has no animation");
+            const auto before = window.GetSceneInstanceBounds(id);
+            auto state = window.GetAnimationState(id);
+            state.playing = true;
+            window.SetAnimationState(id, state);
+            editor.playingAnimations.insert(id);
+            int frames = 0;
+            for (int attempt = 0; attempt < 150 && frames < 30 && window.PollEvents(); ++attempt)
+            {
+                editor.advanceAnimations(1.f / 30);
+                if (window.DrawFrame() == render::FrameResult::Rendered) ++frames;
+            }
+            window.WaitIdle();
+            const auto after = window.GetSceneInstanceBounds(id);
+            require(frames == 30 && window.ValidationErrorCount() == 0, "Metal animation playback failed");
+            require(window.GetAnimationState(id).time > .9f && before && after &&
+                (before->minimum != after->minimum || before->maximum != after->maximum), "Animation did not move the pose");
+            std::cout << "FBX playback: 30 Metal frames, animated bounds changed, validation errors 0\n";
+            return 0;
+        }
+        if (argc == 5 && std::string(argv[1]) == "--fbx-roundtrip")
+        {
+            const auto source = std::filesystem::absolute(argv[2]);
+            const auto output = std::filesystem::absolute(argv[3]);
+            std::filesystem::create_directories(output);
+            Editor editor;
+            editor.fbxConversion = true;
+            editor.helperRoot = std::filesystem::absolute(argv[4]);
+            editor.assetRoot = output;
+            const auto convert = [&](const auto& input, const auto& result) {
+                std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", input.string().c_str());
+                std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", result.string().c_str());
+                editor.convertModel();
+            };
+            const auto fbx = output / "model.fbx", glb = output / "model.glb";
+            convert(source, fbx);
+            convert(fbx, glb);
+            std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", glb.string().c_str());
+            editor.importModel();
+            editor::saveProject(output / "project.json", editor.history.scene, output);
+            std::cout << "FBX roundtrip and desktop reimport passed\n";
+            return 0;
+        }
+        if (argc == 4 && std::string(argv[1]) == "--mesh-roundtrip")
+        {
+            const auto source = std::filesystem::absolute(argv[2]);
+            const auto output = std::filesystem::absolute(argv[3]);
+            std::filesystem::create_directories(output);
+            Editor editor;
+            editor.meshConversion = true;
+            editor.assetRoot = output;
+            const auto convert = [&](const auto& input, const auto& result) {
+                std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", input.string().c_str());
+                std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", result.string().c_str());
+                editor.convertModel();
+            };
+            for (const auto* format : {"obj", "stl"})
+            {
+                const auto mesh = output / (std::string("helmet.") + format);
+                const auto glb = output / (std::string("helmet-") + format + ".glb");
+                convert(source, mesh);
+                auto input = mesh;
+                if (std::string(format) == "obj")
+                {
+                    input.replace_extension();
+                    input /= "model.obj";
+                }
+                convert(input, glb);
+                std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", input.string().c_str());
+                editor.importModel();
+                const auto expected = editor::assets::parseMesh(editor::assets::glbToMesh(editor::assets::readBytes(source), true), true);
+                const auto actual = editor::assets::parseMesh(editor::assets::glbToMesh(editor::assets::readBytes(glb), true), true);
+                require(expected == actual, "Mesh roundtrip changed triangle positions");
+                if (std::string(format) == "obj")
+                {
+                    const auto a = editor::assets::glbToOBJ(editor::assets::readBytes(source));
+                    const auto b = editor::assets::glbToOBJ(editor::assets::readBytes(glb));
+                    for (const auto& [name, bytes] : a)
+                        if (name != "model.obj" && name != "model.mtl")
+                            require(b.at(name) == bytes, "OBJ roundtrip changed texture bytes");
+                    const auto doc = editor::assets::readGLB(editor::assets::readBytes(glb)).json;
+                    require(doc["meshes"][0]["primitives"][0]["attributes"].contains("TEXCOORD_0"),
+                            "OBJ roundtrip lost UVs");
+                }
+                std::cout << format << ": " << actual.size() << " triangles preserved\n";
+            }
+            editor::saveProject(output / "project.json", editor.history.scene, output);
+            return 0;
+        }
+        if (argc == 3)
+        {
+            const auto source = std::filesystem::absolute(argv[1]);
+            const auto output = std::filesystem::absolute(argv[2]);
+            std::filesystem::create_directories(output);
+            Editor editor;
+            const auto convert = [&](bool pack, const auto& input, const auto& result) {
+                editor.packConversion = pack;
+                std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", input.string().c_str());
+                std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", result.string().c_str());
+                editor.convertModel();
+            };
+            const auto first = output / "first.glb", unpacked = output / "unpacked", final = output / "repacked.glb";
+            convert(true, source, first);
+            convert(false, first, unpacked);
+            convert(true, unpacked / "model.gltf", final);
+            editor.assetRoot = output;
+            std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", final.string().c_str());
+            editor.importModel();
+            require(editor.history.scene["nodes"].size() == 1, "Reimport did not add the animated model");
+            editor::saveProject(output / "project.json", editor.history.scene, output);
+            std::cout << "Desktop editor conversion, reimport and save passed: " << final << '\n';
+            return 0;
+        }
         auto root = std::filesystem::temp_directory_path() / ("nova-editor-workflow-" + uuid());
         std::filesystem::create_directories(root / "assets");
         Editor e;

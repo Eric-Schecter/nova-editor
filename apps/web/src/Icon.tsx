@@ -1,5 +1,14 @@
 import React from "react";
 const paths = {
+  pointer: "m6 4 12 9-6 1-3 6L6 4Z",
+  translate: "M12 3v18M3 12h18M9 6l3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3",
+  rotate: "M19 10a7 7 0 1 0 0 5m0-10v5h-5",
+  scale: "M5 5h14v14H5Zm0 9v5h5m4-14h5v5M8 16l8-8",
+  settings: "M4 7h16M4 12h16M4 17h16M8 5v4m8 1v4m-6 1v4",
+  light: "M9 16c0-2-3-3-3-7a6 6 0 1 1 12 0c0 4-3 5-3 7m-6 2h6m-5 3h4",
+  camera: "M3 7h12v10H3Zm12 3 6-3v10l-6-3",
+  grid: "M4 4h6v6H4Zm10 0h6v6h-6ZM4 14h6v6H4Zm10 0h6v6h-6Z",
+
   cube: "M12 3 3 8v9l9 5 9-5V8l-9-5Zm0 0v10m-9-5 9 5 9-5m-9 5v9",
   folder: "M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3V7Z",
   plus: "M12 5v14M5 12h14",

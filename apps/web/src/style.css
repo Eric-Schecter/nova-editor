@@ -633,7 +633,7 @@ footer {
   overflow: visible;
 }
 .view-cube polygon {
-  stroke: #a9b4c3;
+  stroke: #666a72;
   stroke-width: 1;
   stroke-linejoin: round;
 }
@@ -643,11 +643,11 @@ footer {
 }
 .view-cube g[role="button"]:hover polygon,
 .view-cube g[role="button"]:focus polygon {
-  fill: #cddffd;
-  stroke: #3679df;
+  fill: #395a76;
+  stroke: #7bb6ee;
 }
 .view-cube text {
-  fill: #4c5a6e;
+  fill: #e8e9ec;
   font-size: 11px;
   pointer-events: none;
 }
@@ -759,4 +759,13 @@ footer {
   margin: 0;
   flex: none;
   accent-color: #a7bcb1;
+}
+
+.viewport-performance {
+  display: inline-block;
+  margin-inline-start: 10px;
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

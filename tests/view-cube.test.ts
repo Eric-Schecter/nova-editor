@@ -15,6 +15,7 @@ import {
   transform,
 } from "../packages/editor-core/src/viewport";
 import { loadGLB } from "../deps/nova/web/src/ModelData.js";
+import { modelVertexFloats } from "../deps/nova/web/src/ModelVertex.js";
 const camera = { yaw: 25, pitch: 20, distance: 8, exposure: 1 };
 test("all six cube presets are accepted by SDK, with stable projection and matching center ray", () => {
   for (const view of standardViews) {
@@ -40,7 +41,7 @@ test("generated helper GLBs load with actual SDK and recover world dimensions af
     );
     assert.ok(mesh.vertices.length > 0);
     const points: number[][] = [];
-    for (let i = 0; i < mesh.vertices.length; i += 12)
+    for (let i = 0; i < mesh.vertices.length; i += modelVertexFloats)
       points.push(
         transform(helper.world, Array.from(mesh.vertices.slice(i, i + 3))),
       );

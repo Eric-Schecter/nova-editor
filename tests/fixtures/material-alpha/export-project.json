@@ -1,0 +1,1 @@
+{"schemaVersion":2,"name":"Alpha roundtrip","nodes":[{"id":"alpha","parentId":null,"name":"Alpha layers","assetId":"a","transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]}}],"assets":{"a":{"path":"assets/layers.glb","sourceSpace":true}}}

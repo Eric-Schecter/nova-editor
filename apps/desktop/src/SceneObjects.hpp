@@ -201,7 +201,7 @@ namespace editor
             lights.push_back(light);
         }
         window.SetLights(lights);
-        window.SetShadows({true, 1});
+        window.SetShadows({true, 1, 2});
     }
     struct SceneDirectional
     {
@@ -283,6 +283,28 @@ namespace editor
         for (auto& n : scene["nodes"])
             if (n["id"] == id)
                 n["transform"]["rotation"] = rotation;
+    }
+    inline void aimLightAt(Json& scene, const std::string& id, V3 target)
+    {
+        constexpr double degrees = 57.29577951308232;
+        for (const auto& node : scene["nodes"])
+            if (node["id"] == id && node.contains("light") && node["light"]["type"] != "point")
+            {
+                auto delta = sub(pivot(objectFrame(scene, id)), target);
+                if (!node["parentId"].is_null())
+                {
+                    const auto parent = inverse(objectFrame(scene, node["parentId"].get<std::string>()));
+                    if (!parent) throw std::runtime_error("Parent transform is not invertible");
+                    delta = point(*parent, delta, 0);
+                }
+                const auto horizontal = std::hypot(delta[0], delta[2]);
+                if (std::hypot(horizontal, delta[1]) < 1e-6)
+                    throw std::runtime_error("Target coincides with the light");
+                aimObject(scene, id, std::atan2(delta[0], delta[2]) * degrees,
+                          std::atan2(delta[1], horizontal) * degrees);
+                return;
+            }
+        throw std::runtime_error("Select a directional light or spotlight");
     }
     inline std::array<float, 3> localAim(const Json& n)
     {

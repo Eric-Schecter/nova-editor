@@ -24,9 +24,10 @@ try {
       configurable: true,
     }),
   );
+  await page.addInitScript(() => localStorage.setItem("nova-editor.language", "zh"));
   await page.goto(process.env.NOVA_EDITOR_URL || "http://127.0.0.1:5223");
   await page
-    .locator('input[accept=".glb"]')
+    .locator('#model-import')
     .setInputFiles(resolve("tests/fixtures/material-alpha/Layers.glb"));
   await page
     .getByText("4 个模型实例", { exact: true })

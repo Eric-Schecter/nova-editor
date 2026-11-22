@@ -7,6 +7,7 @@
 #include "SceneObjects.hpp"
 #include "SelectionTransform.hpp"
 #include "ViewCube.hpp"
+#include "Theme.hpp"
 #include <imgui.h>
 #include <render/Window.hpp>
 namespace editor
@@ -34,8 +35,11 @@ namespace editor
     struct ViewportTools
     {
         Tool                          mode     = Tool::Translate;
-        bool                          panTool  = false;
+        bool                          panTool  = false, selectOnly = false;
         bool                          gridSnap = true, placementCancelled = false;
+        bool                          moveSnap = false;
+        std::string                   lightAimId;
+        inline static constexpr double gridSteps[]{.1, .25, .5, 1, 2, 5};
         int                           gridIndex = 3;
         std::optional<Drag>           drag;
         Json                          dragBase;
@@ -75,6 +79,7 @@ namespace editor
             if (readOnly)
             {
                 cancel(h);
+                lightAimId.clear();
                 orbit = false;
                 return;
             }
@@ -93,8 +98,8 @@ namespace editor
             Camera c      = navigationCamera(camera);
             drawViewCube(
               c,
-              {pos.x, pos.y + 38},
-              {area.x, std::max(1.f, area.y - 38)},
+              pos,
+              area,
               !drag && !orbit && ImGui::IsWindowHovered(),
               [&](double yaw, double pitch, bool orthographic) {
                   auto next         = camera;
@@ -104,27 +109,74 @@ namespace editor
                   cameraChange(next);
               });
             bool cubeHovered = io.MousePos.x >= pos.x + area.x - 136 && io.MousePos.x <= pos.x + area.x - 8
-                               && io.MousePos.y >= pos.y + 46 && io.MousePos.y <= pos.y + 132;
-            ImGui::SetCursorScreenPos({pos.x + 10, pos.y + 8});
-            ImGui::Checkbox("Grid snap", &gridSnap);
+                               && io.MousePos.y >= pos.y + 8 && io.MousePos.y <= pos.y + 94;
+            using theme::Icon;
+            ImGui::SetCursorScreenPos({pos.x + 12, pos.y + 10});
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {3, 4});
+            ImGui::GetWindowDrawList()->AddRectFilled({pos.x + 8, pos.y + 6},
+                {pos.x + 207, pos.y + 40}, IM_COL32(32, 33, 36, 255), 5);
+            ImGui::BeginDisabled(drag.has_value());
+            if (theme::iconButton("##Select", Icon::Pointer, selectOnly))
+            {
+                selectOnly = true;
+                panTool = false;
+            }
+            ImGui::SetItemTooltip("%s", editor::language::text("Select", "选择"));
+            for (const auto& entry : std::array{
+                std::tuple{Tool::Translate, Icon::Move, "Move (W)"},
+                std::tuple{Tool::Rotate, Icon::Rotate, "Rotate (E)"},
+                std::tuple{Tool::Scale, Icon::Scale, "Scale (R)"}})
+            {
+                const auto [tool, glyph, label] = entry;
+                ImGui::SameLine();
+                ImGui::PushID(label);
+                if (theme::iconButton("##Tool", glyph, !selectOnly && !panTool && mode == tool))
+                {
+                    mode = tool;
+                    selectOnly = false;
+                    panTool = false;
+                }
+                ImGui::SetItemTooltip("%s", label);
+                ImGui::PopID();
+            }
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(75);
-            const char* steps[]{"0.1 m", "0.25 m", "0.5 m", "1 m", "2 m", "5 m"};
-            ImGui::Combo("##PlacementStep", &gridIndex, steps, 6);
-            const bool placementControlsHovered = io.MousePos.x >= pos.x + 6 && io.MousePos.x <= pos.x + 235
-                                                  && io.MousePos.y >= pos.y + 3 && io.MousePos.y <= pos.y + 38;
+            if (ImGui::Button(space == TransformSpace::Local ? editor::language::text("Local", "局部") : editor::language::text("World", "世界"), {60, 26}))
+                space = space == TransformSpace::Local ? TransformSpace::World : TransformSpace::Local;
+            ImGui::SetItemTooltip("%s", editor::language::text("Coordinate space (X)", "切换坐标系 (X)"));
+            ImGui::EndDisabled();
+            ImGui::PopStyleVar();
+            bool canAim = false;
+            if (selections.size() == 1 && !inheritedFlag(h.scene, selected, "locked"))
+                for (const auto& node : h.scene["nodes"])
+                    if (node["id"] == selected && node.contains("light") && node["light"]["type"] != "point")
+                        canAim = true;
+            if (!canAim || lightAimId != selected || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                lightAimId.clear();
+            bool aimHovered = false;
+            if (canAim)
+            {
+                ImGui::SetCursorScreenPos({pos.x + 12, pos.y + 45});
+                ImGui::BeginDisabled(drag.has_value());
+                if (theme::tool(editor::language::text("Aim light", "瞄准灯光"), !lightAimId.empty()))
+                    lightAimId = lightAimId.empty() ? selected : "";
+                aimHovered = ImGui::IsItemHovered();
+                ImGui::SetItemTooltip("%s", editor::language::text("Click a model or the ground to aim. Esc cancels.", "点击模型或地面瞄准灯光。Esc 取消。"));
+                ImGui::EndDisabled();
+            }
+            const bool toolbarHovered = aimHovered || (io.MousePos.x >= pos.x + 8 && io.MousePos.x <= pos.x + 243
+                                        && io.MousePos.y >= pos.y + 6 && io.MousePos.y <= pos.y + 40);
             ImGui::SetCursorScreenPos(pos);
             ImGui::InvisibleButton(
               "##SceneInput",
               {std::max(1.f, area.x - 2), std::max(1.f, area.y - 2)},
               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight
                 | ImGuiButtonFlags_MouseButtonMiddle);
-            bool        hovered       = ImGui::IsItemHovered() && !cubeHovered && !placementControlsHovered;
+            bool        hovered       = ImGui::IsItemHovered() && !cubeHovered && !toolbarHovered;
             const auto* activePayload = ImGui::GetDragDropPayload();
             const bool  assetDragging = activePayload && activePayload->IsDataType("NOVA_ASSET");
             if (assetDragging && (io.AppFocusLost || ImGui::IsKeyPressed(ImGuiKey_Escape)))
                 placementCancelled = true;
-            if (assetDragging && !cubeHovered && !placementControlsHovered && ImGui::BeginDragDropTarget())
+            if (assetDragging && !cubeHovered && !toolbarHovered && ImGui::BeginDragDropTarget())
             {
                 const auto* payload = ImGui::AcceptDragDropPayload(
                   "NOVA_ASSET", ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
@@ -136,14 +188,13 @@ namespace editor
                     auto        b = bounds.find(asset);
                     if (h.scene["assets"].contains(asset) && b != bounds.end())
                     {
-                        const double stepsValue[]{.1, .25, .5, 1, 2, 5};
                         auto         t = placementAt(
                           {io.MousePos.x - pos.x, io.MousePos.y - pos.y},
                           c,
                           full,
                           b->second,
                           gridSnap != io.KeyShift,
-                          stepsValue[gridIndex],
+                          gridSteps[gridIndex],
                           &h.scene,
                           &bounds,
                           sceneSurfaceQuery(window, h.scene));
@@ -254,20 +305,23 @@ namespace editor
                     {
                         mode    = Tool::Translate;
                         panTool = false;
+                        selectOnly = false;
                     }
                     if (ImGui::IsKeyPressed(ImGuiKey_E))
                     {
                         mode    = Tool::Rotate;
                         panTool = false;
+                        selectOnly = false;
                     }
                     if (ImGui::IsKeyPressed(ImGuiKey_R))
                     {
                         mode    = Tool::Scale;
                         panTool = false;
+                        selectOnly = false;
                     }
                 }
             }
-            auto selectionGeometry = selectionGizmo(h.scene, selections, selected, space, mode, c, full, bounds);
+            auto selectionGeometry = selectOnly ? std::nullopt : selectionGizmo(h.scene, selections, selected, space, mode, c, full, bounds);
             std::optional<Gizmo> g = selectionGeometry ? std::optional<Gizmo>(selectionGeometry->gizmo) : std::nullopt;
             if (
               hovered && !drag && !orbit
@@ -303,7 +357,27 @@ namespace editor
                     cameraChange(next);
                 }
             }
-            if (hovered && !orbit && !drag && !io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            const bool click = hovered && !orbit && !drag && !io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+            if (hovered && !lightAimId.empty()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            if (click && !lightAimId.empty())
+            {
+                const auto ray = rayAt(mouse, c, full);
+                const auto hit = sceneSurfaceQuery(window, h.scene)(ray, {});
+                const auto t = std::abs(ray.direction[1]) > 1e-6 ? -ray.origin[1] / ray.direction[1] : -1.;
+                if (hit || t > 0)
+                {
+                    try
+                    {
+                        auto next = h.scene;
+                        aimLightAt(next, lightAimId, hit ? hit->position : add(ray.origin, times(ray.direction, t)));
+                        h.commit(std::move(next));
+                        lightAimId.clear();
+                    }
+                    catch (const std::exception& e) { error(e.what()); }
+                }
+                else error("Click a model or the ground to aim");
+            }
+            else if (click)
             {
                 auto handle = g ? hitGizmo(*g, mouse) : std::optional<int>{};
                 if (handle)
@@ -375,7 +449,8 @@ namespace editor
                     try
                     {
                         auto next  = dragBase;
-                        auto edits = selectionEdits(dragBase, *dragFrame, updateDrag(*drag, mouse, io.KeyShift));
+                        auto edits = selectionEdits(dragBase, *dragFrame, updateDrag(*drag, mouse, drag->gizmo.mode == Tool::Translate ? moveSnap != io.KeyShift : io.KeyShift,
+                                           gridSteps[gridIndex], space == TransformSpace::World));
                         applySelectionEdits(next, edits);
                         h.preview(next);
                     }
@@ -405,7 +480,7 @@ namespace editor
                 auto color  = chosen         ? IM_COL32(240, 197, 90, 255)
                               : glyph.camera ? IM_COL32(99, 150, 213, 255)
                                              : IM_COL32(183, 156, 82, 255);
-                for (const auto& [a, b] : glyph.lines)
+                if (chosen) for (const auto& [a, b] : glyph.lines)
                 {
                     auto pa = project(a, c, full), pb = project(b, c, full);
                     if (pa && pb)
@@ -414,8 +489,8 @@ namespace editor
                 auto p = project(glyph.position, c, full);
                 if (p)
                 {
-                    painter->AddCircleFilled(screen(*p), 6, color);
-                    painter->AddText(
+                    painter->AddCircleFilled(screen(*p), chosen ? 5 : 3, color);
+                    if (chosen) painter->AddText(
                       {screen(*p).x + 10, screen(*p).y - 18},
                       color,
                       glyph.camera ? (glyph.active ? "Camera *" : "Camera") : (glyph.active ? "Light *" : "Light"));
@@ -446,7 +521,7 @@ namespace editor
                                 painter->AddLine(screen(*pa), screen(*pb), IM_COL32(240, 197, 90, 135), 1.2f);
                         }
             }
-            selectionGeometry = selectionGizmo(h.scene, selections, selected, space, mode, c, full, bounds);
+            selectionGeometry = selectOnly ? std::nullopt : selectionGizmo(h.scene, selections, selected, space, mode, c, full, bounds);
             g                 = selectionGeometry ? std::optional<Gizmo>(selectionGeometry->gizmo) : std::nullopt;
             if (g)
             {

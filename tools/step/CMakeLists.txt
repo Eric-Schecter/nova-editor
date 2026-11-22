@@ -1,0 +1,8 @@
+find_package(OpenCASCADE 7.9.3 QUIET COMPONENTS FoundationClasses ModelingData ModelingAlgorithms Visualization ApplicationFramework DataExchange)
+if(OpenCASCADE_FOUND)
+  set(NOVA_OCCT_RUNTIME_DIRS "" CACHE STRING "Additional directories containing OCCT runtime dependencies")
+  set(NOVA_OCCT_LIBRARY_DIR "${OpenCASCADE_LIBRARY_DIR}" PARENT_SCOPE)
+  add_executable(nova_step convert.cpp)
+  target_include_directories(nova_step SYSTEM PRIVATE "${OpenCASCADE_INCLUDE_DIR}")
+  target_link_libraries(nova_step PRIVATE TKDESTEP TKDEGLTF TKRWMesh TKXCAF TKMesh TKBinXCAF)
+endif()

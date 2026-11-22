@@ -117,6 +117,8 @@ export type EditableModel = {
 };
 // Each glTF primitive is a material slot. Keep its local geometry intact; move
 // the glTF transforms into editor nodes so picking and gizmos use the same world.
+export class ModelExpansionBudgetError extends Error {}
+
 export function decodeModel(bytes: Uint8Array): EditableModel {
   const doc = readGLB(bytes),
     j = doc.json;
@@ -144,7 +146,7 @@ export function decodeModel(bytes: Uint8Array): EditableModel {
   function visit(index: number, parent: string | null, world: number[]) {
     if (!Number.isInteger(index) || !j.nodes?.[index] || visited.has(index))
       throw Error("模型层级循环、重复引用或节点无效");
-    if (nodes.length >= 4096) throw Error("模型节点过多");
+    if (nodes.length >= 4096) throw new ModelExpansionBudgetError("模型节点过多");
     visited.add(index);
     const n = j.nodes[index];
     if (n.skin !== undefined) throw Error("暂不支持展开蒙皮节点");
@@ -289,7 +291,7 @@ export function decodeModel(bytes: Uint8Array): EditableModel {
     [...parts.values()].reduce((sum, p) => sum + p.bytes.length, 0) >
       120 * 1024 * 1024
   )
-    throw Error("展开后节点或资源超过预算（4096 节点 / 120 MiB）");
+    throw new ModelExpansionBudgetError("展开后节点或资源超过预算（4096 节点 / 120 MiB）");
   const half = Math.max(...max.map((x, k) => x - min[k])) / 2;
   if (!Number.isFinite(half) || half < 1e-8) throw Error("模型边界无效");
   const normalization = identity();

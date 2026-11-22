@@ -1,4 +1,12 @@
+#include "ScenePreview.hpp"
+#include "FbxConversion.hpp"
+#include "ObjMaterials.hpp"
+#include "MeshFormats.hpp"
+#include "ConvertGLTF.hpp"
+#include "ExportGLB.hpp"
+#include "PrepareGLTFImport.hpp"
 #include "AssetInspector.hpp"
+#include "AssetPreview.hpp"
 #include "Hierarchy.hpp"
 #include "Lighting.hpp"
 #include "ModelEditing.hpp"
@@ -41,6 +49,11 @@ static std::string uuid()
     }
     return out.str();
 }
+static double editorClockSeconds()
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 struct Editor
 {
     std::filesystem::path variantListPath;
@@ -48,6 +61,26 @@ struct Editor
     editor::History        history;
     editor::ViewportTools  tools;
     editor::AssetBounds    assetBounds;
+    double lastRenderedFrame = 0, averageFrameInterval = 0, lastStatsRefresh = 0;
+    char frameStatsLabel[64] = "FPS -- | -- ms";
+
+    void recordViewportFrame(double now)
+    {
+        const double interval = now - lastRenderedFrame;
+        lastRenderedFrame = now;
+        if (interval <= 0 || interval >= .75)
+        {
+            averageFrameInterval = 0;
+            return;
+        }
+        averageFrameInterval = averageFrameInterval > 0 ? averageFrameInterval * .85 + interval * .15 : interval;
+        if (now - lastStatsRefresh >= .25)
+        {
+            std::snprintf(frameStatsLabel, sizeof(frameStatsLabel), "%.0f FPS | %.1f ms",
+                          1.0 / averageFrameInterval, averageFrameInterval * 1000);
+            lastStatsRefresh = now;
+        }
+    }
     std::array<float, 4>   viewportRect{0, 24, 1110, 821};
     std::string            pendingFocus;
     bool                   lit               = true;
@@ -58,22 +91,51 @@ struct Editor
     std::string            environmentKey;
     int                    sidebarTab = 0;
     bool                   assetsOpen = false, focusProjectPath = false, focusModelPath = false;
+    editor::assets::AssetPreviews assetPreviews;
     float                  scenePanelHeight = 285;
 
     render::RenderMode renderMode = render::RenderMode::Raster;
+    std::optional<render::RasterSettings> rasterBeforeHybrid;
     void               setRenderMode(render::RenderMode value)
     {
         if (!window)
             throw std::runtime_error("Renderer unavailable");
-        if (value == render::RenderMode::RayTracing)
+        if (value == render::RenderMode::Hybrid)
         {
-            auto settings            = window->GetRayTracing();
-            settings.maxBounces      = 3;
-            settings.resolutionScale = .5f;
-            settings.denoise         = true;
-            window->SetRayTracing(settings);
+            const auto caps = window->GetHybridCapabilities();
+            if (!caps.supported)
+                throw std::runtime_error(caps.reason);
+            auto settings = window->GetHybrid();
+            settings.reflections = true;
+            settings.ambientOcclusion = true;
+            settings.temporalReconstruction = caps.temporalReconstruction;
+            if (settings.temporalReconstruction)
+            {
+                settings.shadowSamples = 1;
+                settings.aoSamples = 1;
+            }
+            window->SetHybrid(settings);
+            const auto raster = window->GetRasterSettings();
+            window->SetRenderMode(value);
+            rasterBeforeHybrid = raster;
         }
-        window->SetRenderMode(value);
+        else
+        {
+            if (value == render::RenderMode::RayTracing)
+            {
+                auto settings = window->GetRayTracing();
+                settings.maxBounces = 3;
+                settings.resolutionScale = .5f;
+                settings.denoise = true;
+                window->SetRayTracing(settings);
+            }
+            window->SetRenderMode(value);
+            if (rasterBeforeHybrid)
+            {
+                window->SetRasterSettings(*rasterBeforeHybrid);
+                rasterBeforeHybrid.reset();
+            }
+        }
         renderMode = value;
         sceneViewKey.clear();
     }
@@ -85,11 +147,178 @@ struct Editor
     }
     editor::StudioSettings studio;
     editor::Json           saved = editor::emptyScene();
-    std::string            selected, status = "Ready", preview;
+    std::string            selected, status = editor::language::text("Ready", "就绪"), preview;
+    char conversionSource[1024] = "", conversionTarget[1024] = "";
+    bool showConversion = false, packConversion = true;
+
+    bool meshConversion = false, fbxConversion = false;
+    int meshExportFormat = 0;
+    static std::string modelExtension(const std::filesystem::path& path)
+    {
+        auto extension = path.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return std::tolower(c); });
+        return extension;
+    }
+
+    void convertModel()
+    {
+        if (!*conversionSource || !*conversionTarget)
+            throw std::runtime_error("Enter both input and output paths");
+        const auto source = std::filesystem::absolute(conversionSource);
+        auto target = std::filesystem::absolute(conversionTarget);
+        const auto input = modelExtension(source), output = modelExtension(target);
+        if (fbxConversion && !((input == ".fbx" && output == ".glb") || (input == ".glb" && output == ".fbx")))
+            throw std::runtime_error("Choose FBX to GLB or GLB to FBX");
+        if (meshConversion && !((input == ".glb" && (output == ".obj" || output == ".stl")) ||
+            (output == ".glb" && (input == ".obj" || input == ".stl"))))
+            throw std::runtime_error("Choose OBJ/STL to GLB or GLB to OBJ/STL");
+        if (!fbxConversion && !meshConversion && input != (packConversion ? ".gltf" : ".glb"))
+            throw std::runtime_error("Unexpected model extension");
+        if (!fbxConversion && !meshConversion && packConversion && output != ".glb")
+            throw std::runtime_error("Output must have a .glb extension");
+        const bool objBundle = meshConversion && output == ".obj";
+        if (objBundle) target.replace_extension();
+        if (std::filesystem::exists(target))
+            throw std::runtime_error("Output already exists; choose a new path");
+        const auto bytes = fbxConversion ? editor::assets::Bytes{} : editor::assets::readBytes(source);
+        auto staging = target;
+        staging += ".tmp-" + uuid();
+        if (fbxConversion) staging += output;
+        auto write = [](const std::filesystem::path& path, const editor::assets::Bytes& data) {
+            std::ofstream stream(path, std::ios::binary);
+            stream.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+            stream.close();
+            if (!stream) throw std::runtime_error("Cannot write conversion output");
+        };
+        try
+        {
+            if (fbxConversion)
+                editor::assets::convertFBX(helperRoot.parent_path() / "fbx", source, staging);
+            else if (objBundle)
+            {
+                auto files = editor::assets::glbToOBJ(bytes);
+                if (!std::filesystem::create_directory(staging)) throw std::runtime_error("Cannot create OBJ output folder");
+                for (const auto& [name, data] : files) write(staging / name, data);
+            }
+            else if (meshConversion)
+                write(staging, input == ".glb" ? editor::assets::glbToMesh(bytes, true)
+                    : input == ".obj" ? editor::assets::objToGLB(bytes, [&](const std::string& path) {
+                        return editor::assets::readBytes(editor::safeAssetPath(source.parent_path(), path));
+                    }) : editor::assets::meshToGLB(bytes, true));
+            else if (packConversion)
+                write(staging, editor::assets::packGLTF(bytes, [&](const std::string& path) {
+                    return editor::assets::readBytes(editor::safeAssetPath(source.parent_path(), path));
+                }));
+            else
+            {
+                auto files = editor::assets::splitGLB(bytes);
+                if (!std::filesystem::create_directory(staging))
+                    throw std::runtime_error("Cannot create output folder");
+                for (const auto& [name, data] : files) write(staging / name, data);
+            }
+            if (std::filesystem::exists(target)) throw std::runtime_error("Output already exists");
+            std::filesystem::rename(staging, target);
+        }
+        catch (...)
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(staging, ignored);
+            throw;
+        }
+        status = "Converted model: " + target.string();
+    }
+    char                   glbExportPath[1024] = "output/scene.glb";
+    bool                   exportSelectionOnly = false, showGLBExport = false;
     char                   projectPath[1024] = "output/workspace/project.json", modelPath[1024] = "", name[256] = "";
     std::vector<std::function<void()>>    pending;
     editor::RenderWindow*                 window = nullptr;
     std::filesystem::path                 assetRoot, helperRoot;
+    std::optional<editor::Json> runtimeScene;
+    double runtimeSeconds = 0;
+    std::vector<render::SceneAsset> previewAssets;
+    std::vector<render::SceneInstance> authoredInstances;
+    size_t previewInstanceCount = 0;
+
+    bool hasPreviewBehavior() const
+    {
+        for (const auto& node : history.scene["nodes"])
+            if (node.contains("previewBehavior")) return true;
+        return false;
+    }
+
+    void stopScenePreview()
+    {
+        runtimeScene.reset();
+        try
+        {
+            window->SetScene(previewAssets, authoredInstances);
+        }
+        catch (...)
+        {
+            renderDocument = editor::Json();
+            throw;
+        }
+        status = "Scene preview stopped";
+    }
+
+    void toggleScenePreview()
+    {
+        if (runtimeScene) { stopScenePreview(); return; }
+        if (!window || history.previewBase || renderMode != render::RenderMode::Raster || !hasPreviewBehavior()) return;
+        runtimeScene = history.scene;
+        runtimeSeconds = 0;
+        status = "Scene preview playing";
+    }
+
+    void advanceScenePreview(float delta)
+    {
+        if (!runtimeScene) return;
+        try
+        {
+            if (*runtimeScene != history.scene)
+            {
+                stopScenePreview();
+                return;
+            }
+            runtimeSeconds += delta;
+            const auto worlds = editor::previewWorldMatrices(*runtimeScene, runtimeSeconds);
+            auto posed = authoredInstances;
+            for (size_t index = 0; index < previewInstanceCount; ++index)
+                posed[index].world = worlds.at(posed[index].id);
+            window->SetScene(previewAssets, posed);
+        }
+        catch (const std::exception& error)
+        {
+            runtimeScene.reset();
+            renderDocument = editor::Json();
+            status = std::string("Scene preview failed: ") + error.what();
+        }
+    }
+
+    void drawBehavior(const editor::Json& node)
+    {
+        if (node.contains("camera") || node.contains("light")) return;
+        auto behavior = node.value("previewBehavior", editor::Json::object());
+        const auto kind = behavior.value("kind", "");
+        int type = kind == "spin" ? 1 : kind == "bob" ? 2 : 0;
+        float amount = behavior.value("amount", 0.f);
+        bool changed = ImGui::Combo(editor::language::text("Preview behavior", "预览行为"), &type, "None\0Spin\0Bob\0");
+        if (changed) amount = type == 1 ? 60.f : .5f;
+        if (type)
+            changed |= ImGui::SliderFloat(type == 1 ? "Degrees / second" : "Amplitude",
+                &amount, type == 1 ? -360.f : 0.f, type == 1 ? 360.f : 10.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        if (changed)
+            action([this, id = selected, type, amount] {
+                change([&](auto& scene) {
+                    for (auto& target : scene["nodes"])
+                    {
+                        if (target["id"] != id) continue;
+                        if (!type) target.erase("previewBehavior");
+                        else target["previewBehavior"] = {{"kind", type == 1 ? "spin" : "bob"}, {"amount", amount}};
+                    }
+                });
+            });
+    }
     editor::Json                          renderDocument;
     std::string                           renderRoot;
     std::vector<std::string>              selections;
@@ -100,14 +329,14 @@ struct Editor
     editor::Json                          observed, recoveredSnapshot;
     std::chrono::steady_clock::time_point changedAt       = std::chrono::steady_clock::now();
 #ifndef NOVA_EDITOR_WINDOW_HOST_CONTROLS
-    GLFWwindow*                           nativeHandle    = nullptr;
+    GLFWwindow*                           nativeHandle = nullptr;
 #endif
     bool                                  renameRequested = false, nameDraftDirty = false;
     bool                                  requestClose = false, exitApproved = false, showUnsaved = false;
     std::string                           requestedOpen;
     bool                                  requestedNew = false, recoveryDismissed = false;
     bool                                  dirty() const { return history.scene != saved; }
-    void                                  action(std::function<void()> fn) { pending.push_back(std::move(fn)); }
+    void                                  action(std::function<void()> fn) { if (!runtimeScene) pending.push_back(std::move(fn)); }
     void                                  select(const std::string& id)
     {
         if (history.previewBase)
@@ -422,6 +651,81 @@ struct Editor
             }
         sceneViewKey = key;
     }
+    std::set<std::string> playingAnimations;
+
+    void advanceAnimations(float delta)
+    {
+        for (auto it = playingAnimations.begin(); it != playingAnimations.end();)
+        {
+            try
+            {
+                if (window->GetAnimationState(*it).playing)
+                {
+                    ++it;
+                    continue;
+                }
+            }
+            catch (const std::exception&) {} // Removed or hidden instance.
+            it = playingAnimations.erase(it);
+        }
+        if (!playingAnimations.empty())
+            window->UpdateAnimations(delta);
+    }
+
+    void drawAnimation(const editor::Json& node)
+    {
+        if (!window || !node.contains("assetId") || editor::inheritedFlag(history.scene, selected, "hidden"))
+            return;
+        std::vector<render::AnimationClip> clips;
+        render::AnimationState state;
+        try
+        {
+            clips = window->GetAnimations(node["assetId"].get<std::string>());
+            if (clips.empty())
+                return;
+            state = window->GetAnimationState(selected);
+        }
+        catch (const std::exception&) { return; } // Scene has not committed yet.
+        editor::theme::heading(editor::language::text("Animation", "动画"));
+        bool changed = false;
+        const auto clipLabel = [&](size_t index) {
+            return clips[index].name.empty() ? "Clip " + std::to_string(index + 1) : clips[index].name;
+        };
+        if (ImGui::BeginCombo(editor::language::text("Clip", "片段"), clipLabel(state.clip).c_str()))
+        {
+            for (size_t i = 0; i < clips.size(); ++i)
+            {
+                ImGui::PushID(static_cast<int>(i));
+                if (ImGui::Selectable(clipLabel(i).c_str(), state.clip == i))
+                {
+                    state.clip = static_cast<uint32_t>(i);
+                    state.time = 0;
+                    changed = true;
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        const float duration = clips[state.clip].duration;
+        if (ImGui::Button(state.playing ? editor::language::text("Pause", "暂停") : editor::language::text("Play", "播放")))
+        {
+            state.playing = !state.playing;
+            if (state.playing && state.time >= duration)
+                state.time = 0;
+            changed = true;
+        }
+        changed |= ImGui::SliderFloat("Time (seconds)", &state.time, 0, duration);
+        changed |= ImGui::SliderFloat(editor::language::text("Speed", "速度"), &state.speed, .1f, 4.f, "%.1fx");
+        if (changed)
+            action([this, state, id = selected] {
+                window->SetAnimationState(id, state);
+                if (state.playing)
+                    playingAnimations.insert(id);
+                else
+                    playingAnimations.erase(id);
+            });
+    }
+
     void drawSceneNodeProperties(const editor::Json& node)
     {
         auto id   = node["id"].get<std::string>(),
@@ -460,7 +764,7 @@ struct Editor
     void         transformSpaceControl()
     {
         int value = tools.space == editor::TransformSpace::World ? 1 : 0;
-        ImGui::TextDisabled("Coordinates");
+        ImGui::TextDisabled("%s", editor::language::text("Coordinates", "坐标系"));
         ImGui::SetNextItemWidth(-1);
         const char* options[]{"Local", "World"};
         if (ImGui::Combo("##TransformCoordinates", &value, options, 2))
@@ -496,11 +800,11 @@ struct Editor
             float v[3];
             for (int k = 0; k < 3; k++)
                 v[k] = groupDraft[field][k];
-            if (editor::theme::vector(std::string(field) == "position" ? "Group translation" : "Group scale", field, v))
+            if (editor::theme::vector(std::string(field) == "position" ? editor::language::text("Position", "位置") : editor::language::text("Scale", "缩放"), field, v))
                 groupDraft[field] = std::vector<float>(v, v + 3);
         }
         auto angles = editor::quaternionEuler(groupDraft["rotation"]);
-        if (editor::theme::vector("Group rotation (degrees)", "rotation", angles.data(), "%.1f"))
+        if (editor::theme::vector(editor::language::text("Rotation °", "旋转 °"), "rotation", angles.data(), "%.1f"))
             groupDraft["rotation"] = editor::eulerQuaternion(angles);
         if (ImGui::Button("Apply group transform", {-1, 29}))
         {
@@ -654,7 +958,7 @@ struct Editor
         std::snprintf(projectPath, sizeof(projectPath), "%s", destination.string().c_str());
         sidebarTab   = 0;
         requestedNew = false;
-        status       = "New project";
+        status       = editor::language::text("New project", "新建项目");
     }
     void open(bool force = false)
     {
@@ -674,11 +978,13 @@ struct Editor
             toggleMainPreview();
         cameraNotice.clear();
         history.replace(s);
+        assetsOpen = !s["assets"].empty();
+        assetPreviews.clear();
         saved              = s;
         assetRoot          = root;
         currentProjectPath = std::filesystem::absolute(projectPath).string();
         select("");
-        status       = "Opened project";
+        status       = editor::language::text("Opened project", "已打开项目");
         pendingFocus = "*";
     }
     void autosave(bool force = false)
@@ -756,6 +1062,11 @@ struct Editor
         }
         glfwSetWindowShouldClose(nativeHandle, GLFW_FALSE);
 #endif
+        if (runtimeScene)
+        {
+            runtimeScene.reset();
+            renderDocument = editor::Json();
+        }
         history.cancelPreview();
         requestClose = true;
         showUnsaved  = true;
@@ -871,35 +1182,91 @@ struct Editor
     void importModel()
     {
         auto src = std::filesystem::absolute(modelPath);
-        if (src.extension() != ".glb")
-            throw std::runtime_error("Choose a .glb file");
+        const auto extension = modelExtension(src);
+        const bool isStep = extension == ".step" || extension == ".stp";
+        if (extension != ".glb" && extension != ".gltf" && extension != ".obj" && extension != ".stl" && !isStep)
+            throw std::runtime_error("Choose a glTF, GLB, OBJ, STL or STEP file");
         if (assetRoot.empty())
             assetRoot = projectRoot();
-        const auto bytes = editor::assets::readBytes(src);
-        const auto doc = editor::assets::readGLB(bytes);
-        const bool variantAsset = doc.json.value("extensions", editor::Json::object()).contains("KHR_materials_variants");
-        auto id    = uuid();
+        editor::assets::Bytes bytes;
+        if (isStep)
+        {
+            const auto staging = std::filesystem::temp_directory_path() / ("nova-step-" + uuid() + ".glb");
+            try
+            {
+                editor::assets::runModelConverter(helperRoot.parent_path() / "step/nova_step", src, staging);
+                bytes = editor::assets::readBytes(staging);
+            }
+            catch (...)
+            {
+                std::error_code error;
+                std::filesystem::remove(staging, error);
+                throw;
+            }
+            std::filesystem::remove(staging);
+        }
+        else
+            bytes = editor::assets::readBytes(src);
+        if (extension == ".gltf")
+            bytes = editor::assets::packGLTF(bytes, [&](const auto& path) {
+                return editor::assets::readBytes(editor::safeAssetPath(src.parent_path(), path));
+            });
+        else if (extension == ".obj")
+            bytes = editor::assets::objToGLB(bytes, [&](const std::string& path) {
+                return editor::assets::readBytes(editor::safeAssetPath(src.parent_path(), path));
+            });
+        else if (extension == ".stl") bytes = editor::assets::meshToGLB(bytes, true);
+        auto doc = editor::assets::readGLB(bytes);
+        const auto id = uuid();
+        const auto sceneObjects = editor::assets::prepareGLTFImport(doc, id, uuid);
+        if (sceneObjects) bytes = editor::assets::writeGLB(doc);
+        const bool hasMeshes = !doc.json.value("meshes", editor::Json::array()).empty();
+        const bool animated = !doc.json.value("animations", editor::Json::array()).empty()
+                           || !doc.json.value("skins", editor::Json::array()).empty();
+        if (animated && renderMode != render::RenderMode::Raster)
+            setRenderMode(render::RenderMode::Raster);
         auto draft = history.scene;
         draft["nodes"].push_back(
           {{"id", id}, {"parentId", nullptr}, {"name", src.stem().string()}, {"transform", editor::identity()}});
-        if (variantAsset)
+        bool keptWhole = false;
+        for (const auto& mesh : doc.json.value("meshes", editor::Json::array()))
+            for (const auto& primitive : mesh.value("primitives", editor::Json::array()))
+                keptWhole |= !primitive.value("targets", editor::Json::array()).empty();
+        for (const auto& node : doc.json.value("nodes", editor::Json::array()))
+            keptWhole |= node.value("extensions", editor::Json::object()).contains("EXT_mesh_gpu_instancing");
+        for (const auto& material : doc.json.value("materials", editor::Json::array()))
+            keptWhole |= material.value("extensions", editor::Json::object()).contains("KHR_materials_volume");
+        keptWhole |= doc.json.value("extensions", editor::Json::object()).contains("KHR_materials_variants");
+        if (!animated && !keptWhole && (hasMeshes || !sceneObjects || sceneObjects->empty()))
         {
-            const auto path = "assets/" + id + ".glb";
+            try
+            {
+                writeModelFiles(editor::assets::expandModel(draft, id, editor::assets::decodeModel(bytes), uuid));
+            }
+            catch (const editor::assets::ModelExpansionBudgetError&)
+            {
+                keptWhole = true;
+            }
+        }
+        if ((animated || keptWhole) && hasMeshes)
+        {
+            auto path = "assets/" + id + ".glb";
             draft["assets"][id] = {{"path", path}, {"sourceSpace", true}, {"name", src.filename().string()}};
             draft["nodes"].back()["assetId"] = id;
-            writeModelFiles({{path, bytes}});
+            writeModelFiles({{path, std::move(bytes)}});
         }
-        else
+        if (sceneObjects && !sceneObjects->empty())
         {
-            const auto model = editor::assets::decodeModel(bytes);
-            writeModelFiles(editor::assets::expandModel(draft, id, model, uuid));
+            draft["schemaVersion"] = 7;
+            for (const auto& object : *sceneObjects) draft["nodes"].push_back(object);
         }
         change([&](auto& s) { s = draft; });
         select(id);
         pendingFocus = id;
         preview      = src.stem().string();
         sidebarTab   = 0;
-        status       = "Model imported";
+        status       = keptWhole ? "Imported as a whole model (internal nodes and material slots not expanded)"
+                                 : "Model imported";
     }
     bool searchMatch(const editor::Json& node)
     {
@@ -941,11 +1308,15 @@ struct Editor
                  locked = editor::inheritedFlag(history.scene, id, "locked");
             std::string label =
               (hidden ? "[H] " : "") + (locked ? std::string("[L] ") : std::string()) + n["name"].get<std::string>();
-            if (n.contains("camera"))
-                label = "[Camera] " + label + (n["camera"]["primary"] == true ? " *" : "");
-            if (n.contains("light"))
-                label = "[Light] " + label + (n["light"]["active"] == true ? " *" : "");
-            bool expanded = ImGui::TreeNodeEx("node", flags, "%s", label.c_str());
+            using editor::theme::Icon;
+            const auto glyph = n.contains("camera") ? Icon::Camera : n.contains("light") ? Icon::Light
+                                    : n.contains("assetId") ? Icon::Mesh : Icon::Group;
+            const auto cursor = ImGui::GetCursorScreenPos();
+            bool expanded = ImGui::TreeNodeEx("node", flags, "     %s", label.c_str());
+            editor::theme::icon(ImGui::GetWindowDrawList(),
+                {cursor.x + ImGui::GetTreeNodeToLabelSpacing() + 5,
+                 (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * .5f},
+                ImGui::GetColorU32(ImGuiCol_Text), glyph);
             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
             {
                 auto& io       = ImGui::GetIO();
@@ -1029,7 +1400,7 @@ struct Editor
                      {"group", "ungroup", "duplicate", "delete", "hide", "show", "lock", "unlock", "up", "down"})
                     if (ImGui::MenuItem(command))
                         action([this, cmd = std::string(command)] { treeCommand(cmd); });
-                if (ImGui::MenuItem("Rename"))
+                if (ImGui::MenuItem(editor::language::text("Rename", "重命名")))
                 {
                     select(id);
                     sidebarTab      = 0;
@@ -1069,7 +1440,7 @@ struct Editor
                 action([this] { finishRequest(false); });
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
+            if (ImGui::Button(editor::language::text("Cancel", "取消")))
             {
                 requestClose = false;
                 requestedNew = false;
@@ -1192,16 +1563,16 @@ struct Editor
         ImGui::TextDisabled("Light color");
         ImGui::SetNextItemWidth(-1);
         changed |= ImGui::ColorEdit3("##LightColor", studio.color.data(), ImGuiColorEditFlags_DisplayHex);
-        ImGui::TextDisabled("Intensity");
+        ImGui::TextDisabled("%s", editor::language::text("Intensity", "强度"));
         ImGui::SetNextItemWidth(-1);
         changed |=
           ImGui::SliderFloat("##LightIntensity", &studio.intensity, 0, 10, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
-        changed |= ImGui::Checkbox("Cast shadows", &studio.shadows);
+        changed |= ImGui::Checkbox(editor::language::text("Cast shadows", "投射阴影"), &studio.shadows);
         ImGui::BeginDisabled(!studio.shadows);
-        ImGui::TextDisabled("Shadow softness");
+        ImGui::TextDisabled("%s", editor::language::text("Shadow softness", "阴影柔和度"));
         ImGui::SetNextItemWidth(-1);
         changed |= ImGui::SliderFloat("##ShadowSoftness", &studio.softness, 0, 4, "%.1f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::TextDisabled("0: hard                      4: soft");
@@ -1222,12 +1593,12 @@ struct Editor
     {
         if (sidebarTab == 1)
         {
-            editor::theme::heading("Project");
+            editor::theme::heading(editor::language::text("Project", "项目"));
             ImGui::TextWrapped("%s", history.scene["name"].get<std::string>().c_str());
             ImGui::TextDisabled(
               "%zu nodes / %zu assets", history.scene["nodes"].size(), history.scene["assets"].size());
             ImGui::Spacing();
-            ImGui::TextDisabled("Project path");
+            ImGui::TextDisabled("%s", editor::language::text("Project path", "项目路径"));
             ImGui::SetNextItemWidth(-1);
             if (focusProjectPath)
             {
@@ -1235,16 +1606,16 @@ struct Editor
                 focusProjectPath = false;
             }
             ImGui::InputText("##ProjectPath", projectPath, sizeof(projectPath));
-            if (ImGui::Button("Open"))
+            if (ImGui::Button(editor::language::text("Open", "打开")))
                 action([this] { open(); });
             ImGui::SameLine();
-            if (ImGui::Button("Save"))
+            if (ImGui::Button(editor::language::text("Save", "保存")))
                 action([this] { save(); });
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
-            editor::theme::heading("Resources");
-            ImGui::TextDisabled("GLB path");
+            editor::theme::heading(editor::language::text("Resources", "资源"));
+            ImGui::TextDisabled("%s", editor::language::text("Model path", "模型路径"));
             ImGui::SetNextItemWidth(-1);
             if (focusModelPath)
             {
@@ -1252,23 +1623,28 @@ struct Editor
                 focusModelPath = false;
             }
             ImGui::InputText("##ModelPath", modelPath, sizeof(modelPath));
-            if (ImGui::Button("Import GLB"))
+            if (ImGui::Button(editor::language::text("Import model", "导入模型")))
                 action([this] { importModel(); });
-            if (ImGui::Button(assetsOpen ? "Hide assets" : "Show assets"))
+            if (ImGui::Button(assetsOpen ? editor::language::text("Hide assets", "收起资源库") : editor::language::text("Show assets", "展开资源库")))
                 assetsOpen = !assetsOpen;
             ImGui::Spacing();
             ImGui::TextWrapped("%s", recoveryStatus.c_str());
-            if (!recoveries.empty() && ImGui::Button("Recovery copies..."))
+            if (!recoveries.empty() && ImGui::Button(editor::language::text("Recovery copies...", "恢复副本…")))
                 recoveryDismissed = false;
         }
         else
         {
-            editor::theme::heading("View");
-            ImGui::Checkbox("Asset drawer", &assetsOpen);
-            ImGui::Checkbox("Grid snap", &tools.gridSnap);
+            int languageIndex = editor::language::chinese ? 1 : 0;
+            if (ImGui::Combo(editor::language::text("Language###Language", "语言###Language"),
+                             &languageIndex, "English\0简体中文\0"))
+                editor::language::set(languageIndex == 1);
+            editor::theme::heading(editor::language::text("View", "视图"));
+            ImGui::Checkbox(editor::language::text("Asset drawer", "资源库抽屉"), &assetsOpen);
+            ImGui::Checkbox(editor::language::text("Grid snap", "网格吸附"), &tools.gridSnap);
+            ImGui::Checkbox(editor::language::text("Move snap (Shift to toggle)", "移动吸附（Shift 临时切换）"), &tools.moveSnap);
             // Existing controls remain in the viewport too.
             bool lighting = lit;
-            if (ImGui::Checkbox("Studio lighting", &lighting))
+            if (ImGui::Checkbox(editor::language::text("Studio lighting", "摄影棚光照"), &lighting))
             {
                 lit = lighting;
                 queueLighting();
@@ -1276,7 +1652,7 @@ struct Editor
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
-            editor::theme::heading("Shortcuts");
+            editor::theme::heading(editor::language::text("Shortcuts", "快捷键"));
             ImGui::TextDisabled("W / E / R   Move / Rotate / Scale");
             ImGui::TextDisabled("X   Local / World coordinates");
             ImGui::TextDisabled("H / P       Pan / Projection");
@@ -1292,44 +1668,153 @@ struct Editor
         nativeHandle      = static_cast<GLFWwindow*>(ImGui::GetMainViewport()->PlatformHandle);
 #endif
         auto        d     = ImGui::GetIO().DisplaySize;
-        const float right = std::min(330.f, std::max(260.f, d.x * .26f)), left = 0, top = ImGui::GetFrameHeight();
+        const float right = std::clamp(d.x * .26f, 295.f, 400.f), left = 0, top = ImGui::GetFrameHeight();
         const float center = std::max(1.f, d.x - right), bottom = (assetsOpen ? 145.f : 30.f) + 25.f;
         const float sideTop = top + 35, sideHeight = std::max(1.f, d.y - sideTop - 25);
         scenePanelHeight = std::clamp(scenePanelHeight, 140.f, std::max(140.f, sideHeight * .55f));
+        if (showConversion)
+        {
+            ImGui::OpenPopup("Convert model format");
+            showConversion = false;
+        }
+        if (ImGui::BeginPopupModal("Convert model format", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextUnformatted(fbxConversion ? "FBX <-> GLB" : meshConversion ? "OBJ / STL <-> GLB" : packConversion ? "glTF to GLB" : "GLB to glTF");
+            ImGui::InputText("Input model path", conversionSource, sizeof(conversionSource));
+            ImGui::InputText(fbxConversion ? "Output .fbx / .glb path" : meshConversion ? "Output .obj (folder) / .stl / .glb" : packConversion ? "Output .glb path" : "New output folder", conversionTarget, sizeof(conversionTarget));
+            if (ImGui::Button("Convert"))
+                action([this] { convertModel(); });
+            ImGui::SameLine();
+            if (ImGui::Button(editor::language::text("Close", "关闭"))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (showGLBExport) {
+            meshExportFormat = 0;
+            ImGui::OpenPopup("Export model"); showGLBExport = false;
+        }
+        if (ImGui::BeginPopupModal("Export model", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted(exportSelectionOnly ? "Selected subtrees + ancestor transforms" : "Complete scene");
+            ImGui::Combo("Format", &meshExportFormat, "GLB\0OBJ\0STL\0");
+            ImGui::InputText("Output path", glbExportPath, sizeof(glbExportPath));
+            ImGui::TextDisabled("%s", meshExportFormat == 1 ? "OBJ saves an adjacent MTL and textures in a new folder." : meshExportFormat == 2 ? "Geometry only. Materials, textures and animation are omitted."
+                                                       : "Embedded textures. Nova environment effects are not included.");
+            if (ImGui::Button("Export")) action([&] {
+                if (history.previewBase.has_value()) throw std::runtime_error("Finish transform before export");
+                auto target = std::filesystem::absolute(glbExportPath);
+                const char* extension = meshExportFormat == 0 ? ".glb" : meshExportFormat == 1 ? ".obj" : ".stl";
+                if (modelExtension(target) != extension)
+                    throw std::runtime_error(std::string("Output must use ") + extension);
+                if (meshExportFormat == 1) target.replace_extension();
+                if (std::filesystem::exists(target)) throw std::runtime_error("File exists; choose a new output path");
+                auto root = assetRoot.empty() ? projectRoot() : assetRoot;
+                auto data = editor::assets::exportGLB(history.scene, [&](const std::string& path) {
+                    return editor::assets::readBytes(editor::safeAssetPath(root, path));
+                }, exportSelectionOnly ? std::optional(selections) : std::nullopt);
+                if (meshExportFormat == 1)
+                {
+                    const auto files = editor::assets::glbToOBJ(data);
+                    auto staging = target;
+                    staging += ".tmp-" + uuid();
+                    std::filesystem::create_directories(staging);
+                    try
+                    {
+                        for (const auto& [name, bytes] : files)
+                        {
+                            std::ofstream out(staging / name, std::ios::binary);
+                            out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+                            out.close();
+                            if (!out) throw std::runtime_error("Cannot write OBJ bundle");
+                        }
+                        if (std::filesystem::exists(target)) throw std::runtime_error("Output already exists");
+                        std::filesystem::rename(staging, target);
+                    }
+                    catch (...)
+                    {
+                        std::error_code ignored;
+                        std::filesystem::remove_all(staging, ignored);
+                        throw;
+                    }
+                    status = "Exported OBJ folder: " + target.string();
+                    return;
+                }
+                if (meshExportFormat == 2) data = editor::assets::glbToMesh(data, true);
+                std::filesystem::create_directories(target.parent_path());
+                auto tmp = target; tmp += ".tmp";
+                { std::ofstream stream(tmp, std::ios::binary | std::ios::trunc); stream.write(reinterpret_cast<const char*>(data.data()), data.size());
+                  stream.close(); if (!stream) {std::filesystem::remove(tmp); throw std::runtime_error("Cannot write GLB");} }
+                std::filesystem::rename(tmp, target);
+                status = "Exported model: " + target.string(); ImGui::CloseCurrentPopup();
+            });
+            ImGui::SameLine(); if (ImGui::Button(editor::language::text("Cancel", "取消"))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
         if (ImGui::BeginMainMenuBar())
         {
             ImGui::TextDisabled("NOVA");
-            if (ImGui::BeginMenu("File"))
+            ImGui::BeginDisabled(runtimeScene.has_value());
+            if (ImGui::BeginMenu(editor::language::text("File", "文件")))
             {
-                if (ImGui::MenuItem("New project"))
+                if (ImGui::MenuItem(editor::language::text("New project", "新建项目")))
                     action([this] { newProject(); });
-                if (ImGui::MenuItem("Open project..."))
+                if (ImGui::MenuItem(editor::language::text("Open project...", "打开项目…")))
                 {
                     sidebarTab       = 1;
                     focusProjectPath = true;
                 }
-                if (ImGui::MenuItem("Save", "Ctrl/Cmd S"))
+                if (ImGui::MenuItem(editor::language::text("Save", "保存"), "Ctrl/Cmd S"))
                     action([this] { save(); });
                 if (ImGui::MenuItem("Save as..."))
                 {
                     sidebarTab       = 1;
                     focusProjectPath = true;
                 }
-                if (ImGui::MenuItem("Import GLB..."))
+                if (ImGui::MenuItem("FBX <-> GLB..."))
+                {
+                    fbxConversion = true;
+                    meshConversion = false;
+                    showConversion = true;
+                }
+                if (ImGui::MenuItem("OBJ / STL <-> GLB..."))
+                {
+                    fbxConversion = false;
+                    meshConversion = true;
+                    showConversion = true;
+                }
+                if (ImGui::MenuItem("glTF to GLB..."))
+                {
+                    fbxConversion = false;
+                    meshConversion = false;
+                    packConversion = true;
+                    showConversion = true;
+                }
+                if (ImGui::MenuItem("GLB to glTF..."))
+                {
+                    fbxConversion = false;
+                    meshConversion = false;
+                    packConversion = false;
+                    showConversion = true;
+                }
+                if (ImGui::MenuItem("Export selected model...", nullptr, false, !selections.empty())) {
+                    exportSelectionOnly = true; showGLBExport = true;
+                }
+                if (ImGui::MenuItem("Export scene...")) {
+                    exportSelectionOnly = false; showGLBExport = true;
+                }
+                if (ImGui::MenuItem(editor::language::text("+ Import model", "＋ 导入模型")))
                 {
                     sidebarTab     = 1;
                     focusModelPath = true;
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Edit"))
+            if (ImGui::BeginMenu(editor::language::text("Edit", "编辑")))
             {
-                if (ImGui::MenuItem("Undo", "Ctrl/Cmd Z", false, !history.past.empty()))
+                if (ImGui::MenuItem(editor::language::text("Undo", "撤销"), "Ctrl/Cmd Z", false, !history.past.empty()))
                     action([this] {
                         history.undo();
                         select("");
                     });
-                if (ImGui::MenuItem("Redo", "Ctrl/Cmd Shift Z", false, !history.future.empty()))
+                if (ImGui::MenuItem(editor::language::text("Redo", "重做"), "Ctrl/Cmd Shift Z", false, !history.future.empty()))
                     action([this] {
                         history.redo();
                         select("");
@@ -1340,25 +1825,25 @@ struct Editor
                         action([this, command = std::string(cmd)] { treeCommand(command); });
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Add"))
+            if (ImGui::BeginMenu(editor::language::text("Add", "添加")))
             {
-                if (ImGui::MenuItem("Directional light"))
+                if (ImGui::MenuItem(editor::language::text("Directional light", "方向光")))
                     action([this] { addSceneObject("light"); });
-                if (ImGui::MenuItem("Point light"))
+                if (ImGui::MenuItem(editor::language::text("Point light", "点光")))
                     action([this] { addSceneObject("light", "point"); });
-                if (ImGui::MenuItem("Spot light"))
+                if (ImGui::MenuItem(editor::language::text("Spot light", "聚光灯")))
                     action([this] { addSceneObject("light", "spot"); });
-                if (ImGui::MenuItem("Camera"))
+                if (ImGui::MenuItem(editor::language::text("Camera", "相机")))
                     action([this] { addSceneObject("camera"); });
 
-                if (ImGui::BeginMenu("Mesh"))
+                if (ImGui::BeginMenu(editor::language::text("Mesh", "网格")))
                 {
                     for (const auto& item : editor::assets::primitives())
                         if (ImGui::MenuItem(item.first.c_str()))
                             action([this, type = item.first] { createPrimitive(type); });
                     ImGui::EndMenu();
                 }
-                if (ImGui::MenuItem("Empty node"))
+                if (ImGui::MenuItem(editor::language::text("Empty node", "空节点")))
                     action([this] {
                         add();
                         sidebarTab = 0;
@@ -1370,7 +1855,7 @@ struct Editor
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("View"))
+            if (ImGui::BeginMenu(editor::language::text("View", "视图")))
             {
                 if (ImGui::MenuItem(
                       mainPreview ? "Return to editor view" : "Preview main camera",
@@ -1387,22 +1872,22 @@ struct Editor
                 }
                 if (ImGui::MenuItem("Focus selected", "F", false, !tools.drag && !mainPreview))
                     action([this] { frame(selected); });
-                if (ImGui::MenuItem("Frame all", "Shift F", false, !tools.drag && !mainPreview))
+                if (ImGui::MenuItem(editor::language::text("Frame all", "显示全景"), "Shift F", false, !tools.drag && !mainPreview))
                     action([this] { frame(""); });
-                if (ImGui::MenuItem("Orthographic", "P", window->GetCamera().orthographic, !tools.drag && !mainPreview))
+                if (ImGui::MenuItem(editor::language::text("Orthographic", "正交"), "P", window->GetCamera().orthographic, !tools.drag && !mainPreview))
                     action([this] {
                         auto c         = window->GetCamera();
                         c.orthographic = !c.orthographic;
                         window->SetCamera(c);
                     });
-                if (ImGui::MenuItem("Assets", nullptr, assetsOpen))
+                if (ImGui::MenuItem(editor::language::text("Assets", "资源库"), nullptr, assetsOpen))
                     assetsOpen = !assetsOpen;
                 if (ImGui::MenuItem("Light settings"))
                 {
                     sidebarTab     = 0;
                     lightInspector = true;
                 }
-                if (ImGui::MenuItem("Reset view", nullptr, false, !tools.drag && !mainPreview))
+                if (ImGui::MenuItem(editor::language::text("Reset view", "恢复默认视角"), nullptr, false, !tools.drag && !mainPreview))
                     action([this] {
                         auto c         = window->GetCamera();
                         c.distance     = 8;
@@ -1414,31 +1899,51 @@ struct Editor
                     });
                 ImGui::EndMenu();
             }
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!runtimeScene && (!hasPreviewBehavior() || renderMode != render::RenderMode::Raster));
+            if (ImGui::Button(runtimeScene ? editor::language::text("Stop preview", "停止预览") : editor::language::text("Play scene", "播放场景")))
+                pending.push_back([this] { toggleScenePreview(); });
+            ImGui::EndDisabled();
             ImGui::SameLine(std::max(370.f, d.x - 300));
             ImGui::TextDisabled("%s%s", history.scene["name"].get<std::string>().c_str(), dirty() ? " *" : "");
             ImGui::EndMainMenuBar();
         }
+        ImGui::BeginDisabled(runtimeScene.has_value());
         panel("##SidebarTabs", {center, top}, {right, 35}, false);
-        if (editor::theme::tool("Scene", sidebarTab == 0))
+        if (editor::theme::tool(editor::language::text("Scene", "场景"), sidebarTab == 0))
             sidebarTab = 0;
         ImGui::SameLine();
-        if (editor::theme::tool("Project", sidebarTab == 1))
+        if (editor::theme::tool(editor::language::text("Project", "项目"), sidebarTab == 1))
             sidebarTab = 1;
         ImGui::SameLine();
-        if (editor::theme::tool("Settings", sidebarTab == 2))
+        if (editor::theme::tool(editor::language::text("Settings", "设置"), sidebarTab == 2))
             sidebarTab = 2;
         ImGui::End();
         if (sidebarTab == 0)
         {
-            panel("Scene", {center, sideTop}, {right, scenePanelHeight});
-            if (ImGui::Button("+ New node"))
+            using editor::theme::Icon;
+            panel("Scene", {center, sideTop}, {right, scenePanelHeight}, false);
+            ImGui::AlignTextToFramePadding();
+            editor::theme::heading(editor::language::text("Scene", "场景"));
+            ImGui::SameLine(std::max(58.f, right - 111));
+            if (editor::theme::iconButton("##AddNode", Icon::Add))
                 action([this] { add(); });
+            ImGui::SetItemTooltip("%s", editor::language::text("Add empty node", "添加空节点"));
+            ImGui::BeginDisabled(selections.empty());
             ImGui::SameLine();
-            if (ImGui::Button("Clear"))
-                select("");
+            if (editor::theme::iconButton("##Duplicate", Icon::Duplicate))
+                action([this] { treeCommand("duplicate"); });
+            ImGui::SetItemTooltip("%s", editor::language::text("Duplicate selected nodes", "复制选中节点"));
+            ImGui::SameLine();
+            if (editor::theme::iconButton("##Delete", Icon::Delete))
+                action([this] { treeCommand("delete"); });
+            ImGui::SetItemTooltip("%s", editor::language::text("Delete selected nodes", "删除选中节点"));
+            ImGui::EndDisabled();
+            ImGui::Separator();
             ImGui::SetNextItemWidth(-1);
-            ImGui::InputTextWithHint("##Search", "Search nodes", search, sizeof(search));
-            ImGui::Button("Scene root", {-1, 28});
+            ImGui::InputTextWithHint("##Search", editor::language::text("Search nodes", "搜索节点"), search, sizeof(search));
+            if (ImGui::Selectable(editor::language::text("Scene root", "场景根级"), false))
+                select("");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                   "Drop here to move to root. Row center: parent; edges: sort. Ctrl/Cmd: multi-select; Shift: range.");
@@ -1476,13 +1981,15 @@ struct Editor
               {center, sideTop + scenePanelHeight + 6},
               {right, std::max(1.f, sideHeight - scenePanelHeight - 6)},
               false);
+            editor::theme::heading(editor::language::text("Properties", "属性"));
+            ImGui::Separator();
             bool hasSelectedAsset = false;
             for (const auto& node : history.scene["nodes"])
                 if (node["id"] == selected && !node.contains("camera") && !node.contains("light"))
                     hasSelectedAsset = true;
             if (!hasSelectedAsset && assetInspectorTab != 3)
                 assetInspectorTab = 0;
-            if (editor::theme::tool("Object", !lightInspector && assetInspectorTab == 0))
+            if (editor::theme::tool(editor::language::text("Object", "对象"), !lightInspector && assetInspectorTab == 0))
             {
                 lightInspector    = false;
                 assetInspectorTab = 0;
@@ -1490,14 +1997,14 @@ struct Editor
             if (hasSelectedAsset)
             {
                 ImGui::SameLine();
-                if (editor::theme::tool("Geometry", !lightInspector && assetInspectorTab == 1))
+                if (editor::theme::tool(editor::language::text("Geometry", "几何体"), !lightInspector && assetInspectorTab == 1))
                 {
                     lightInspector    = false;
                     assetInspectorTab = 1;
                 }
                 if (ImGui::GetContentRegionAvail().x > 85)
                     ImGui::SameLine();
-                if (editor::theme::tool("Material", !lightInspector && assetInspectorTab == 2))
+                if (editor::theme::tool(editor::language::text("Material", "材质"), !lightInspector && assetInspectorTab == 2))
                 {
                     lightInspector    = false;
                     assetInspectorTab = 2;
@@ -1505,14 +2012,14 @@ struct Editor
             }
             if (ImGui::GetContentRegionAvail().x > 70)
                 ImGui::SameLine();
-            if (editor::theme::tool("Light", lightInspector))
+            if (editor::theme::tool(editor::language::text("Light", "灯光"), lightInspector))
             {
                 lightInspector    = true;
                 assetInspectorTab = 0;
             }
             if (ImGui::GetContentRegionAvail().x > 75)
                 ImGui::SameLine();
-            if (editor::theme::tool("World", !lightInspector && assetInspectorTab == 3))
+            if (editor::theme::tool(editor::language::text("World", "世界"), !lightInspector && assetInspectorTab == 3))
             {
                 lightInspector    = false;
                 assetInspectorTab = 3;
@@ -1573,12 +2080,14 @@ struct Editor
                     if (locked)
                         ImGui::TextWrapped("Locked");
                     transformSpaceControl();
+                    drawAnimation(n);
                     ImGui::BeginDisabled(locked);
+                    drawBehavior(n);
                     if (n.contains("camera") || n.contains("light"))
                         drawSceneNodeProperties(n);
-                    editor::theme::heading(n.contains("assetId") ? "Model instance" : "Node");
+                    editor::theme::heading(n.contains("assetId") ? editor::language::text("Model instance", "模型实例") : "Node");
                     ImGui::Spacing();
-                    ImGui::TextDisabled("Name");
+                    ImGui::TextDisabled("%s", editor::language::text("Name", "名称"));
                     ImGui::SetNextItemWidth(-1);
                     if (renameRequested)
                     {
@@ -1667,7 +2176,7 @@ struct Editor
                             ImGui::Spacing();
                         }
                     }
-                    editor::theme::heading("Transform");
+                    editor::theme::heading(editor::language::text("Transform", "变换"));
                     ImGui::Spacing();
                     try
                     {
@@ -1677,7 +2186,7 @@ struct Editor
                             float v[3];
                             for (int i = 0; i < 3; i++)
                                 v[i] = inspected[key][i];
-                            if (editor::theme::vector(std::string(key) == "position" ? "Position" : "Scale", key, v))
+                            if (editor::theme::vector(std::string(key) == "position" ? editor::language::text("Position", "位置") : editor::language::text("Scale", "缩放"), key, v))
                             {
                                 auto               id = selected;
                                 std::vector<float> values(v, v + 3);
@@ -1693,7 +2202,7 @@ struct Editor
                             }
                         }
                         auto angles = editor::quaternionEuler(inspected["rotation"]);
-                        if (editor::theme::vector("Rotation (degrees)", "rotation", angles.data(), "%.1f"))
+                        if (editor::theme::vector(editor::language::text("Rotation °", "旋转 °"), "rotation", angles.data(), "%.1f"))
                         {
                             auto id       = selected;
                             auto rotation = editor::eulerQuaternion(angles);
@@ -1711,7 +2220,7 @@ struct Editor
                     {
                         ImGui::TextWrapped("World transform contains shear. Use Local numeric fields.");
                     }
-                    if (ImGui::Button("Drop to surface", {-1, 29}))
+                    if (ImGui::Button(editor::language::text("Drop to surface", "一键落地"), {-1, 29}))
                         action([this] { landSelected(); });
                     if (ImGui::Button("Duplicate selection", {-1, 29}))
                         action([this] { treeCommand("duplicate"); });
@@ -1721,7 +2230,7 @@ struct Editor
                     break;
                 }
                 if (!found)
-                    ImGui::TextWrapped("Select an object.");
+                    ImGui::TextWrapped("%s", editor::language::text("Select an object.", "选择一个场景对象。"));
             }
             ImGui::End();
         }
@@ -1733,12 +2242,12 @@ struct Editor
         }
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8, 3});
         panel("##AssetDrawer", {0, d.y - bottom}, {center, 30}, false);
-        if (ImGui::Button(assetsOpen ? "- Assets" : "+ Assets"))
+        if (ImGui::Button(assetsOpen ? editor::language::text("- Assets", "− 资源库") : editor::language::text("+ Assets", "＋ 资源库")))
             assetsOpen = !assetsOpen;
         ImGui::SameLine();
         ImGui::TextDisabled("%zu", history.scene["assets"].size());
         ImGui::SameLine();
-        if (ImGui::SmallButton("Import GLB..."))
+        if (ImGui::SmallButton(editor::language::text("+ Import model", "＋ 导入模型")))
         {
             sidebarTab     = 1;
             focusModelPath = true;
@@ -1749,7 +2258,7 @@ struct Editor
         {
             panel("##AssetContent", {0, d.y - bottom + 30}, {center, bottom - 55}, false);
             {
-                ImGui::BeginChild("##AssetFiles", {0, 66}, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::BeginChild("##AssetFiles", {0, 96}, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
                 size_t index = 0;
                 for (auto it = history.scene["assets"].begin(); it != history.scene["assets"].end(); ++it)
                 {
@@ -1775,9 +2284,9 @@ struct Editor
                     ImGui::PushID(id.c_str());
                     auto  p       = ImGui::GetCursorScreenPos();
                     auto* painter = ImGui::GetWindowDrawList();
-                    painter->AddRectFilled(p, {p.x + 178, p.y + 54}, ImGui::GetColorU32(ImGuiCol_FrameBg), 5);
-                    painter->AddRect(p, {p.x + 178, p.y + 54}, ImGui::GetColorU32(ImGuiCol_Border), 5);
-                    if (ImGui::Selectable("##Asset", active, ImGuiSelectableFlags_None, {178, 54}) && !nodeId.empty())
+                    painter->AddRectFilled(p, {p.x + 104, p.y + 63}, ImGui::GetColorU32(ImGuiCol_FrameBg), 5);
+                    painter->AddRect(p, {p.x + 104, p.y + 63}, active ? IM_COL32(123, 182, 238, 255) : ImGui::GetColorU32(ImGuiCol_Border), 4);
+                    if (ImGui::Selectable("##Asset", active, ImGuiSelectableFlags_None, {104, 82}) && !nodeId.empty())
                         action([this, nodeId] { select(nodeId); });
                     if (ImGui::BeginDragDropSource())
                     {
@@ -1789,15 +2298,36 @@ struct Editor
                         ImGui::TextDisabled("Drag into viewport | Esc cancels");
                         ImGui::EndDragDropSource();
                     }
-                    editor::theme::cube(painter, {p.x + 23, p.y + 26}, ImGui::GetColorU32(ImGuiCol_CheckMark));
-                    painter->PushClipRect({p.x + 43, p.y}, {p.x + 174, p.y + 54}, true);
-                    painter->AddText({p.x + 43, p.y + 10}, ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
-                    painter->AddText({p.x + 43, p.y + 31}, ImGui::GetColorU32(ImGuiCol_TextDisabled), "GLB model");
+                    if (ImGui::IsRectVisible(p, {p.x + 104, p.y + 84}))
+                    {
+                        const auto resource = resolveAsset(assetRoot.empty() ? projectRoot() : assetRoot,
+                                                           it.value()["path"].get<std::string>());
+                        const auto* preview = assetPreviews.request(resource);
+                        if (!preview || preview->empty())
+                            editor::theme::cube(painter, {p.x + 52, p.y + 31}, ImGui::GetColorU32(ImGuiCol_CheckMark));
+                        else
+                        {
+                            painter->AddRectFilledMultiColor({p.x + 1, p.y + 1}, {p.x + 103, p.y + 62},
+                                IM_COL32(53, 54, 56, 255), IM_COL32(53, 54, 56, 255),
+                                IM_COL32(33, 34, 36, 255), IM_COL32(33, 34, 36, 255));
+                            constexpr float dx = 102.f / editor::assets::previewWidth;
+                            constexpr float dy = 61.f / editor::assets::previewHeight;
+                            for (const auto& run : *preview)
+                                painter->AddRectFilled({p.x + 1 + run.x * dx, p.y + 1 + run.y * dy},
+                                    {p.x + 1 + (run.x + run.length) * dx, p.y + 1 + (run.y + 1) * dy}, run.color);
+                        }
+                        if (active)
+                            painter->AddRect(p, {p.x + 104, p.y + 63}, IM_COL32(123, 182, 238, 255), 4);
+                    }
+                    painter->PushClipRect({p.x + 3, p.y + 63}, {p.x + 101, p.y + 84}, true);
+                    const float textWidth = ImGui::CalcTextSize(label.c_str()).x;
+                    painter->AddText({p.x + std::max(4.f, (104 - textWidth) / 2), p.y + 66},
+                                     ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
                     painter->PopClipRect();
                     ImGui::PopID();
                 }
                 if (!index)
-                    ImGui::TextDisabled("Import a model to start your asset library.");
+                    ImGui::TextDisabled("%s", editor::language::text("Import a model to start your asset library.", "导入模型开始建立资源库。"));
                 ImGui::EndChild();
             }
             ImGui::End();
@@ -1812,6 +2342,16 @@ struct Editor
         ImGui::End();
         ImGui::PopStyleVar();
         viewportRect = {left, top, center, std::max(1.f, d.y - top - bottom)};
+        const char* stats = editorClockSeconds() - lastRenderedFrame < .75 ? frameStatsLabel : "Idle";
+        const auto statsSize = ImGui::CalcTextSize(stats);
+        if (viewportRect[2] >= statsSize.x + 24 && viewportRect[3] >= statsSize.y + 18)
+        {
+            auto* draw = ImGui::GetBackgroundDrawList();
+            const ImVec2 max{viewportRect[0] + viewportRect[2] - 10, viewportRect[1] + viewportRect[3] - 10};
+            const ImVec2 min{max.x - statsSize.x - 16, max.y - statsSize.y - 8};
+            draw->AddRectFilled(min, max, IM_COL32(27, 29, 33, 220), 4);
+            draw->AddText({min.x + 8, min.y + 4}, IM_COL32(241, 243, 246, 255), stats);
+        }
         drawDialogs();
         if (!showUnsaved && (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper) && ImGui::IsKeyPressed(ImGuiKey_S))
             action([this] { save(); });
@@ -1822,7 +2362,7 @@ struct Editor
             if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !selections.empty())
                 action([this] { treeCommand("delete"); });
         }
-        tools.draw(
+        if (!runtimeScene) tools.draw(
           history,
           mainPreview,
           selected,
@@ -1870,48 +2410,62 @@ struct Editor
           [this](const std::string& error) { status = error; },
           [this](editor::OrbitCamera camera) { action([this, camera] { window->SetCamera(camera); }); });
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {5, 4});
-        panel("##ViewportOptions", {std::max(8.f, center - 458), top + 8}, {450, 36}, false);
+        panel("##ViewportOptions", {189, top + 6}, {46, 34}, false);
         ImGui::BeginDisabled(tools.drag.has_value());
-        if (ImGui::Button(
-              mainPreview                        ? "Editor view"
-              : window->GetCamera().orthographic ? "Orthographic"
-                                                 : "Perspective"))
-            action([this] {
-                if (mainPreview)
-                {
-                    toggleMainPreview();
-                    return;
+        if (editor::theme::iconButton("##ViewportSettings", editor::theme::Icon::Settings))
+            ImGui::OpenPopup(editor::language::text("Viewport settings", "视口设置"));
+        ImGui::SetItemTooltip("%s", editor::language::text("Viewport settings", "视口设置"));
+        if (ImGui::BeginPopup(editor::language::text("Viewport settings", "视口设置")))
+        {
+            if (ImGui::Button(
+                  mainPreview                        ? "Editor view"
+                  : window->GetCamera().orthographic ? "Orthographic"
+                                                     : "Perspective"))
+                action([this] {
+                    if (mainPreview)
+                    {
+                        toggleMainPreview();
+                        return;
+                    }
+                    auto c         = window->GetCamera();
+                    c.orthographic = !c.orthographic;
+                    window->SetCamera(c);
+                });
+            int modeIndex = static_cast<int>(renderMode);
+            ImGui::SetNextItemWidth(128);
+            if (ImGui::Combo("##RenderMode", &modeIndex, "Raster\0Ray tracing\0Hybrid\0"))
+                action([this, modeIndex] { setRenderMode(static_cast<render::RenderMode>(modeIndex)); });
+            if (renderMode == render::RenderMode::RayTracing)
+            {
+                int integrator = int(window->GetRayTracing().integrator);
+                ImGui::SetNextItemWidth(120);
+                if (ImGui::Combo("##RayIntegrator", &integrator, "PT\0BDPT\0Photon mapping\0"))
+                    action([this, integrator] { setIntegrator(render::PathIntegrator(integrator)); });
                 }
-                auto c         = window->GetCamera();
-                c.orthographic = !c.orthographic;
-                window->SetCamera(c);
-            });
-        ImGui::SameLine();
-        if (ImGui::Button(renderMode == render::RenderMode::Raster ? "Raster" : "Ray tracing"))
-            action([this] {
-                setRenderMode(
-                  renderMode == render::RenderMode::Raster ? render::RenderMode::RayTracing
-                                                           : render::RenderMode::Raster);
-            });
-        ImGui::SameLine();
-        if (renderMode == render::RenderMode::RayTracing)
-        {
-            int integrator = int(window->GetRayTracing().integrator);
-            ImGui::SetNextItemWidth(120);
-            if (ImGui::Combo("##RayIntegrator", &integrator, "PT\0BDPT\0Photon mapping\0"))
-                action([this, integrator] { setIntegrator(render::PathIntegrator(integrator)); });
-            ImGui::SameLine();
+            ImGui::BeginDisabled(renderMode == render::RenderMode::RayTracing);
+            if (ImGui::Button(renderMode == render::RenderMode::RayTracing ? "PBR" : lit ? "Lit" : "Unlit"))
+            {
+                lit = !lit;
+                queueLighting();
+            }
+            ImGui::EndDisabled();
+            if (ImGui::Button(editor::language::text("Lighting settings", "光照设置")))
+            {
+                sidebarTab = 0;
+                lightInspector = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::Separator();
+            ImGui::Checkbox(editor::language::text("Grid snap", "网格吸附"), &tools.gridSnap);
+            ImGui::Checkbox(editor::language::text("Move snap (Shift to toggle)", "移动吸附（Shift 临时切换）"), &tools.moveSnap);
+            ImGui::SetNextItemWidth(128);
+            ImGui::Combo("##PlacementStep", &tools.gridIndex, "0.1 m\0" "0.25 m\0" "0.5 m\0" "1 m\0" "2 m\0" "5 m\0");
+            ImGui::EndPopup();
         }
-        ImGui::BeginDisabled(renderMode == render::RenderMode::RayTracing);
-        if (ImGui::Button(renderMode == render::RenderMode::RayTracing ? "PBR" : lit ? "Lit" : "Unlit"))
-        {
-            lit = !lit;
-            queueLighting();
-        }
-        ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::End();
         ImGui::PopStyleVar();
+        ImGui::EndDisabled();
     }
     void syncScene()
     {
@@ -1926,7 +2480,7 @@ struct Editor
                resolveAsset(root, it.value()["path"].get<std::string>()),
                it.value().value("sourceSpace", false),
                it.value().contains("materialVariant")
-                 ? std::optional<uint32_t>(it.value()["materialVariant"].get<uint32_t>()) : std::nullopt});
+                   ? std::optional<uint32_t>(it.value()["materialVariant"].get<uint32_t>()) : std::nullopt});
         std::vector<render::SceneInstance> instances;
         for (const auto& n : history.scene["nodes"])
             if (n.contains("assetId") && !editor::inheritedFlag(history.scene, n["id"].get<std::string>(), "hidden"))
@@ -1980,7 +2534,17 @@ struct Editor
             assets.push_back({id, helperRoot / (helper["name"].get<std::string>() + ".glb")});
             instances.push_back({id, id, helper["world"].get<editor::Matrix>(), false});
         }
-        window->SetScene(assets, instances);
+        try
+        {
+            window->SetScene(assets, instances);
+        }
+        catch (const std::invalid_argument& error)
+        {
+            if (renderMode == render::RenderMode::Raster || std::string_view(error.what()) != "Animated scenes require Raster mode")
+                throw;
+            setRenderMode(render::RenderMode::Raster);
+            window->SetScene(assets, instances);
+        }
         assetBounds.clear();
         for (auto it = history.scene["assets"].begin(); it != history.scene["assets"].end(); ++it)
             if (auto b = window->GetSceneAssetBounds(it.key()))
@@ -1992,6 +2556,9 @@ struct Editor
             pendingFocus.clear();
             frame(id == "*" ? "" : id);
         }
+        previewAssets = std::move(assets);
+        authoredInstances = std::move(instances);
+        previewInstanceCount = userCount;
         renderDocument = history.scene;
         renderRoot     = root.string();
         preview        = std::to_string(userCount) + " rendered instances";
@@ -2148,6 +2715,7 @@ int main(int argc, char** argv)
         int         limit = 0;
         std::string model;
         render::GraphicsAPI api = render::GraphicsAPI::Auto;
+        editor::language::load(editor::defaultRecoveryRoot().parent_path() / "language");
         Editor      editor;
         auto        executableDir = std::filesystem::absolute(argv[0]).parent_path();
 #ifdef __APPLE__
@@ -2182,7 +2750,7 @@ int main(int argc, char** argv)
                 std::snprintf(editor.projectPath, sizeof(editor.projectPath), "%s", argv[++i]);
             else
                 throw std::runtime_error(
-                  "Usage: nova_editor [--api auto|metal|vulkan|dx12] [--frames N] [--model file.glb] [--project "
+                  "Usage: nova_editor [--api auto|metal|vulkan|dx12] [--frames N] [--model file.gltf|file.glb] [--project "
                   "project.json] [--recovery-dir "
                   "directory]");
         }
@@ -2201,7 +2769,7 @@ int main(int argc, char** argv)
         window.SetClearColor({.6f, .6f, .6f, 1});
         window.SetLighting(render::LightingMode::PBR);
         window.SetDirectionalLight(editor.studio.light());
-        window.SetShadows({editor.studio.shadows, editor.studio.softness});
+        window.SetShadows({editor.studio.shadows, editor.studio.softness, 2});
         auto environment           = window.GetEnvironment();
         environment.showBackground = false;
         window.SetEnvironment(environment);
@@ -2232,14 +2800,23 @@ int main(int argc, char** argv)
         editor.syncScene();
         std::cout << "Scene camera distance: " << window.GetCamera().distance << std::endl;
         int frames = 0;
+        double lastFrame = editorClockSeconds();
         while (!limit || frames < limit)
         {
             if (!window.PollEvents() && !editor.continueAfterClose(window))
                 break;
             if (editor.exitApproved)
                 break;
+            const double now = editorClockSeconds();
+            const auto delta = static_cast<float>(std::clamp(now - lastFrame, 0.0, 0.1));
+            editor.advanceScenePreview(delta);
+            editor.advanceAnimations(delta);
+            lastFrame = now;
             if (window.DrawFrame() == render::FrameResult::Rendered)
+            {
                 ++frames;
+                editor.recordViewportFrame(editorClockSeconds());
+            }
             editor.flush();
         }
         if (!editor.exitApproved)
