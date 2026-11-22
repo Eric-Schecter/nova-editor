@@ -43,7 +43,7 @@ export type Scene = {
   nodes: SceneNode[];
   assets: Record<
     string,
-    { path: string; sourceSpace?: boolean; name?: string }
+    { path: string; sourceSpace?: boolean; name?: string; materialVariant?: number }
   >;
 };
 export const identity = (): Transform => ({
@@ -81,6 +81,9 @@ export function validateScene(value: unknown): Scene {
       typeof asset.path !== "string" ||
       (asset.name !== undefined && typeof asset.name !== "string") ||
       (value.schemaVersion === 1 && asset.sourceSpace === true) ||
+      (asset.materialVariant !== undefined &&
+        (typeof asset.materialVariant !== "number" || !Number.isInteger(asset.materialVariant) ||
+          asset.materialVariant < 0 || asset.materialVariant > 0xffffffff)) ||
       (asset.sourceSpace !== undefined &&
         typeof asset.sourceSpace !== "boolean") ||
       !asset.path.startsWith("assets/") ||

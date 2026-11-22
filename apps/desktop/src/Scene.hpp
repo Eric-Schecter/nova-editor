@@ -89,6 +89,12 @@ namespace editor
         }
         for (auto it = s["assets"].begin(); it != s["assets"].end(); ++it)
         {
+            if (it.value().contains("materialVariant"))
+            {
+                const auto& index = it.value()["materialVariant"];
+                if (!index.is_number_integer() || index.get<double>() < 0 || index.get<double>() > 4294967295.0)
+                    throw std::runtime_error("Invalid material variant index");
+            }
             if (it.value().contains("sourceSpace") && !it.value()["sourceSpace"].is_boolean())
                 throw std::runtime_error("Invalid asset coordinate space");
             if (s["schemaVersion"] == 1 && it.value().value("sourceSpace", false))
