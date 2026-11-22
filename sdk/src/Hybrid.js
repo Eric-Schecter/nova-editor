@@ -1,0 +1,107 @@
+export const defaultHybrid = () => ({
+  shadows: true,
+  shadowSamples: 4,
+  view: 'final',
+  shadowLight: 0,
+  temporalReconstruction: false,
+  historyWeight: 0.9,
+  reflections: false,
+  diffuseBounce: false,
+  probeGI: false,
+  reflectionDistance: 1000,
+  reflectionStrength: 1,
+  reflectionSamples: 1,
+  ambientOcclusion: false,
+  aoRadius: 1,
+  aoStrength: 1,
+  aoSamples: 4,
+})
+export function copyHybrid(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Object.keys(value).some(
+      (k) =>
+        ![
+          'shadows',
+          'shadowSamples',
+          'view',
+          'shadowLight',
+          'temporalReconstruction',
+          'historyWeight',
+          'reflections',
+          'diffuseBounce',
+          'probeGI',
+          'reflectionDistance',
+          'reflectionStrength',
+          'reflectionSamples',
+          'ambientOcclusion',
+          'aoRadius',
+          'aoStrength',
+          'aoSamples',
+        ].includes(k),
+    )
+  )
+    throw Error('Unknown Hybrid setting')
+  const s = { ...defaultHybrid(), ...value }
+  if (
+    typeof s.shadows !== 'boolean' ||
+    !Number.isInteger(s.shadowSamples) ||
+    s.shadowSamples < 1 ||
+    s.shadowSamples > 16 ||
+    !['final', 'shadows', 'ambient-occlusion', 'reflections'].includes(s.view) ||
+    !Number.isInteger(s.shadowLight) ||
+    s.shadowLight < 0 ||
+    s.shadowLight > 15 ||
+    typeof s.ambientOcclusion !== 'boolean' ||
+    !Number.isFinite(s.aoRadius) ||
+    s.aoRadius <= 0 ||
+    s.aoRadius > 10000 ||
+    !Number.isFinite(s.aoStrength) ||
+    s.aoStrength < 0 ||
+    s.aoStrength > 4 ||
+    !Number.isInteger(s.aoSamples) ||
+    s.aoSamples < 1 ||
+    s.aoSamples > 32 ||
+    typeof s.reflections !== 'boolean' ||
+    typeof s.diffuseBounce !== 'boolean' ||
+    typeof s.probeGI !== 'boolean' ||
+    !Number.isFinite(s.reflectionDistance) ||
+    s.reflectionDistance <= 0 ||
+    s.reflectionDistance > 100000 ||
+    !Number.isFinite(s.reflectionStrength) ||
+    s.reflectionStrength < 0 ||
+    s.reflectionStrength > 1 ||
+    !Number.isInteger(s.reflectionSamples) ||
+    s.reflectionSamples < 1 ||
+    s.reflectionSamples > 16 ||
+    typeof s.temporalReconstruction !== 'boolean' ||
+    !Number.isFinite(s.historyWeight) ||
+    s.historyWeight < 0 ||
+    s.historyWeight > 0.98
+  )
+    throw Error('Invalid Hybrid settings')
+  return s
+}
+export function hybridCapabilities(animated = false) {
+  return {
+    supported: !animated,
+    rasterPrimaryVisibility: true,
+    shadows: true,
+    softwareRayTracing: true,
+    hardwareRayTracing: false,
+    ambientOcclusion: true,
+    reflections: true,
+    globalIllumination: true,
+    probeGI: !animated,
+    temporalReconstruction: true,
+    animatedGeometry: false,
+    taa: false,
+    splitAA: false,
+    gpuPresentation: true,
+    alphaMask: true,
+    alphaBlend: true,
+    execution: 'fragment-bvh',
+    reason: animated ? 'Hybrid currently requires static geometry' : '',
+  }
+}
