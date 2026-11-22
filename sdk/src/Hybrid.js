@@ -1,6 +1,8 @@
 export const defaultHybrid = () => ({
   shadows: true,
   shadowSamples: 4,
+  shadowTemporalReconstruction: false,
+  shadowSVGF: false,
   view: 'final',
   shadowLight: 0,
   temporalReconstruction: false,
@@ -8,10 +10,27 @@ export const defaultHybrid = () => ({
   reflections: false,
   diffuseBounce: false,
   probeGI: false,
+  probeSkyLighting: false,
+  probeMultiBounce: false,
+  probeSharedRays: false,
+  probeOctahedral: false,
+  probeReflectionLighting: false,
+  probeRoughReflections: false,
+  probeBounds: null,
   reflectionDistance: 1000,
   reflectionStrength: 1,
   reflectionSamples: 1,
+  halfResolutionReflections: false,
+  reflectionDenoising: false,
+  reflectionSVGF: false,
+  mirrorReflections: false,
+  reflectionHitReprojection: false,
+  clearcoatReflections: true,
   ambientOcclusion: false,
+  halfResolutionAO: false,
+  blueNoiseAO: false,
+  blueNoiseShadows: false,
+  blueNoiseReflections: false,
   aoRadius: 1,
   aoStrength: 1,
   aoSamples: 4,
@@ -25,6 +44,8 @@ export function copyHybrid(value) {
         ![
           'shadows',
           'shadowSamples',
+          'shadowTemporalReconstruction',
+          'shadowSVGF',
           'view',
           'shadowLight',
           'temporalReconstruction',
@@ -32,10 +53,27 @@ export function copyHybrid(value) {
           'reflections',
           'diffuseBounce',
           'probeGI',
+          'probeSkyLighting',
+          'probeMultiBounce',
+          'probeSharedRays',
+          'probeOctahedral',
+          'probeReflectionLighting',
+          'probeRoughReflections',
+          'probeBounds',
           'reflectionDistance',
           'reflectionStrength',
           'reflectionSamples',
+          'halfResolutionReflections',
+          'reflectionDenoising',
+          'reflectionSVGF',
+          'mirrorReflections',
+          'reflectionHitReprojection',
+          'clearcoatReflections',
           'ambientOcclusion',
+          'halfResolutionAO',
+          'blueNoiseAO',
+          'blueNoiseShadows',
+          'blueNoiseReflections',
           'aoRadius',
           'aoStrength',
           'aoSamples',
@@ -46,6 +84,8 @@ export function copyHybrid(value) {
   const s = { ...defaultHybrid(), ...value }
   if (
     typeof s.shadows !== 'boolean' ||
+    typeof s.shadowTemporalReconstruction !== 'boolean' ||
+    typeof s.shadowSVGF !== 'boolean' ||
     !Number.isInteger(s.shadowSamples) ||
     s.shadowSamples < 1 ||
     s.shadowSamples > 16 ||
@@ -54,6 +94,10 @@ export function copyHybrid(value) {
     s.shadowLight < 0 ||
     s.shadowLight > 15 ||
     typeof s.ambientOcclusion !== 'boolean' ||
+    typeof s.halfResolutionAO !== 'boolean' ||
+    typeof s.blueNoiseAO !== 'boolean' ||
+    typeof s.blueNoiseShadows !== 'boolean' ||
+    typeof s.blueNoiseReflections !== 'boolean' ||
     !Number.isFinite(s.aoRadius) ||
     s.aoRadius <= 0 ||
     s.aoRadius > 10000 ||
@@ -66,12 +110,24 @@ export function copyHybrid(value) {
     typeof s.reflections !== 'boolean' ||
     typeof s.diffuseBounce !== 'boolean' ||
     typeof s.probeGI !== 'boolean' ||
+    typeof s.probeSkyLighting !== 'boolean' ||
+    typeof s.probeReflectionLighting !== 'boolean' ||
+    typeof s.probeRoughReflections !== 'boolean' ||
+    typeof s.probeMultiBounce !== 'boolean' ||
+    typeof s.probeSharedRays !== 'boolean' ||
+    typeof s.probeOctahedral !== 'boolean' ||
     !Number.isFinite(s.reflectionDistance) ||
     s.reflectionDistance <= 0 ||
     s.reflectionDistance > 100000 ||
     !Number.isFinite(s.reflectionStrength) ||
     s.reflectionStrength < 0 ||
     s.reflectionStrength > 1 ||
+    typeof s.halfResolutionReflections !== 'boolean' ||
+    typeof s.reflectionDenoising !== 'boolean' ||
+    typeof s.reflectionSVGF !== 'boolean' ||
+    typeof s.mirrorReflections !== 'boolean' ||
+    typeof s.reflectionHitReprojection !== 'boolean' ||
+    typeof s.clearcoatReflections !== 'boolean' ||
     !Number.isInteger(s.reflectionSamples) ||
     s.reflectionSamples < 1 ||
     s.reflectionSamples > 16 ||
@@ -81,6 +137,24 @@ export function copyHybrid(value) {
     s.historyWeight > 0.98
   )
     throw Error('Invalid Hybrid settings')
+  if (s.probeBounds !== null) {
+    const { minimum, maximum } = s.probeBounds || {}
+    if (
+      ![minimum, maximum].every(
+        (values) =>
+          Array.isArray(values) &&
+          values.length === 3 &&
+          values.every((v) => Number.isFinite(v) && Number.isFinite(Math.fround(v))),
+      ) ||
+      minimum.some(
+        (low, i) =>
+          Math.fround(low) >= Math.fround(maximum[i]) ||
+          !Number.isFinite(Math.fround(maximum[i] - low)),
+      )
+    )
+      throw Error('Invalid Hybrid probe bounds')
+    s.probeBounds = { minimum: [...minimum], maximum: [...maximum] }
+  }
   return s
 }
 export function hybridCapabilities(animated = false) {

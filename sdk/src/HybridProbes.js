@@ -1,10 +1,12 @@
 import { modelVertexFloats } from './ModelVertex.js'
 // The current buffer holds the entire grid. Only the scheduled range is written;
 // a snapshot gives the update shader stable history for that range.
+export const hybridProbeGridDimensions = Object.freeze([5, 4, 5])
+
 export function createHybridProbes(device, pipeline, layout) {
-  const dimensions = [5, 4, 5]
+  const dimensions = hybridProbeGridDimensions
   const count = dimensions.reduce((a, b) => a * b, 1)
-  const size = count * 6 * 32
+  const size = count * 256 * 32
   const current = device.createBuffer({
     size,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
@@ -19,10 +21,7 @@ export function createHybridProbes(device, pipeline, layout) {
   })
   const bindings = (buffers) =>
     buffers.map((buffer, binding) => ({ binding: binding + 25, resource: { buffer } }))
-  const batch = device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(2),
-    entries: bindings([config, previous, current]),
-  })
+  const batchGroups = new Map()
   const read = device.createBindGroup({ layout, entries: bindings([config, current]) })
   let first = 0
   let sequence = 0
@@ -32,10 +31,18 @@ export function createHybridProbes(device, pipeline, layout) {
     invalidate() {
       reset = true
     },
-    update(bounds, header, sceneResources) {
+    update(
+      bounds,
+      header,
+      sceneResources,
+      minimumExtent = 0.25,
+      multiBounce = false,
+      sharedPipeline = null,
+      octahedral = false,
+    ) {
       if (!bounds) return
       const [minimum, maximum] = bounds
-      const extent = maximum.map((v, i) => Math.max(v - minimum[i], 0.25))
+      const extent = maximum.map((v, i) => Math.max(v - minimum[i], minimumExtent))
       const spacing = extent.map((v, i) => v / dimensions[i])
       const origin = minimum.map((v, i) => v + spacing[i] * 0.5)
       const encoder = device.createCommandEncoder()
@@ -48,31 +55,41 @@ export function createHybridProbes(device, pipeline, layout) {
       const configData = new ArrayBuffer(64)
       const floats = new Float32Array(configData)
       const ints = new Uint32Array(configData)
-      floats.set(origin)
+      floats.set([...origin, octahedral ? 1 : 0])
       floats.set([...spacing, Math.hypot(...extent)], 4)
       ints.set([...dimensions, first, batchCount, sequence], 8)
       floats[14] = 0.85
       ints[15] = header
       device.queue.writeBuffer(config, 0, configData)
-      const bytesPerProbe = 6 * 32
+      const bytesPerProbe = (octahedral ? 256 : 6) * 32
+      const offset = multiBounce ? 0 : first * bytesPerProbe
       encoder.copyBufferToBuffer(
         current,
-        first * bytesPerProbe,
+        offset,
         previous,
-        first * bytesPerProbe,
-        batchCount * bytesPerProbe,
+        offset,
+        (multiBounce ? count : batchCount) * bytesPerProbe,
       )
       const pass = encoder.beginComputePass()
-      pass.setPipeline(pipeline)
+      const updatePipeline = sharedPipeline || pipeline
+      if (!batchGroups.has(updatePipeline))
+        batchGroups.set(
+          updatePipeline,
+          device.createBindGroup({
+            layout: updatePipeline.getBindGroupLayout(2),
+            entries: bindings([config, previous, current]),
+          }),
+        )
+      pass.setPipeline(updatePipeline)
       pass.setBindGroup(
         0,
         device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
+          layout: updatePipeline.getBindGroupLayout(0),
           entries: sceneResources,
         }),
       )
-      pass.setBindGroup(2, batch)
-      pass.dispatchWorkgroups(Math.ceil((batchCount * 6) / 32))
+      pass.setBindGroup(2, batchGroups.get(updatePipeline))
+      pass.dispatchWorkgroups(sharedPipeline ? batchCount : Math.ceil((batchCount * 6) / 32))
       pass.end()
       device.queue.submit([encoder.finish()])
       first = (first + batchCount) % count

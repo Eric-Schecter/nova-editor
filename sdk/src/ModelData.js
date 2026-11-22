@@ -148,7 +148,7 @@ async function convertSpecularGlossiness(json, loadImage, decodedImages) {
     material.pbrMetallicRoughness = { baseColorTexture: addMap(base), metallicRoughnessTexture: addMap(mr) }
   }
 }
-export async function loadGLB(url, { materialVariant } = {}) {
+export async function loadGLB(url, { pack = true, materialVariant } = {}) {
   const response = await fetch(url)
   if (!response.ok) throw Error('Load GLB: HTTP ' + response.status)
   const bytes = await response.arrayBuffer(),
@@ -676,108 +676,86 @@ export async function loadGLB(url, { materialVariant } = {}) {
       film?.iridescenceThicknessTexture,
       anisotropy?.anisotropyTexture,
     ]
-    const fallback = [
-      [255, 255, 255, 255],
-      [128, 128, 255, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-      [0, 0, 0, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-      [128, 128, 255, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-      [255, 255, 255, 255],
-    ]
     const baseSampler = json.samplers?.[json.textures?.[pbr.baseColorTexture?.index]?.sampler]
     const wrap = (mode) => mode === 33071 ? 1 : mode === 33648 ? 2 : 0
     const baseColorWrap = wrap(baseSampler?.wrapS) | (wrap(baseSampler?.wrapT) << 2)
     const images = []
-    try {
-      for (let i = 0; i < textures.length; i++) {
-        if (!textures[i]) {
-          images.push({ width: 1, height: 1, pixels: new Uint8Array(fallback[i]) })
-          continue
-        }
-        images.push(await loadImage(json.textures[textures[i].index].source))
-      }
-      materials.push(
-        validateMaterial({
-          name: material.name || '',
-          baseColor: pbr.baseColorFactor || [1, 1, 1, 1],
-          metallic: pbr.metallicFactor ?? 1,
-          roughness: pbr.roughnessFactor ?? 1,
-          specularFactor: specular?.specularFactor,
-          clearcoatFactor: coat?.clearcoatFactor,
-          clearcoatRoughnessFactor: coat?.clearcoatRoughnessFactor,
-          clearcoatNormalScale: coat?.clearcoatNormalTexture?.scale,
-          clearcoatTexCoords: coatTextureKeys.map((key) => coat?.[key]?.texCoord ?? 0),
-          specularColorFactor: specular?.specularColorFactor,
-          alphaMode: material.alphaMode ?? 'OPAQUE',
-          alphaCutoff: material.alphaCutoff ?? 0.5,
-          doubleSided: material.doubleSided ?? false,
+    for (const [i, texture] of textures.entries()) {
+      if (!texture) continue
+      const source = json.textures[texture.index].source
+      images[i] = await loadImage(source)
+    }
+    materials.push(
+      validateMaterial({
+        name: material.name || '',
+        baseColor: pbr.baseColorFactor || [1, 1, 1, 1],
+        metallic: pbr.metallicFactor ?? 1,
+        roughness: pbr.roughnessFactor ?? 1,
+        hybridReflectionStrength: material.extras?.novaHybridReflectionStrength,
+        specularFactor: specular?.specularFactor,
+        clearcoatFactor: coat?.clearcoatFactor,
+        clearcoatRoughnessFactor: coat?.clearcoatRoughnessFactor,
+        clearcoatNormalScale: coat?.clearcoatNormalTexture?.scale,
+        clearcoatTexCoords: coatTextureKeys.map((key) => coat?.[key]?.texCoord ?? 0),
+        specularColorFactor: specular?.specularColorFactor,
+        alphaMode: material.alphaMode ?? 'OPAQUE',
+        alphaCutoff: material.alphaCutoff ?? 0.5,
+        doubleSided: material.doubleSided ?? false,
         unlit: material.extensions?.KHR_materials_unlit !== undefined,
         baseColorWrap,
         emissiveTexCoord: material.emissiveTexture?.texCoord === 1 &&
           (pbr.baseColorTexture || pbr.metallicRoughnessTexture || material.normalTexture) ? 1 : 0,
-          normalScale: material.normalTexture?.scale ?? 1,
-          occlusionStrength: material.occlusionTexture?.strength ?? 1,
-          occlusionTexCoord: occlusionStreams.get(materialIndex) ?? material.occlusionTexture?.texCoord ?? 0,
-          independentUVTransform: independentUVTransforms.get(materialIndex),
-          independentUVMaps: independentUVMaps.get(materialIndex),
-          emissive: (material.emissiveFactor || [0, 0, 0]).map((v) => v * emissiveStrength),
-          baseColorTexture: textures[0] ? images[0] : null,
-          normalTexture: textures[1] ? images[1] : null,
-          metallicRoughnessTexture: textures[2] ? images[2] : null,
-          occlusionTexture: textures[3] ? images[3] : null,
-          emissiveTexture: textures[4] ? images[4] : null,
-          clearcoatTexture: textures[5] ? images[5] : null,
-          clearcoatRoughnessTexture: textures[6] ? images[6] : null,
-          clearcoatNormalTexture: textures[7] ? images[7] : null,
-          transmissionTexture: textures[8] ? images[8] : null,
-          thicknessTexture: textures[9] ? images[9] : null,
-          specularTexture: textures[10] ? images[10] : null,
-          specularColorTexture: textures[11] ? images[11] : null,
-          specularTexCoords: [specular?.specularTexture?.texCoord ?? 0, specular?.specularColorTexture?.texCoord ?? 0],
-          sheenColorFactor: sheen?.sheenColorFactor,
-          sheenRoughnessFactor: sheen?.sheenRoughnessFactor,
-          sheenColorTexture: textures[12] ? images[12] : null,
-          sheenRoughnessTexture: textures[13] ? images[13] : null,
-          iridescenceFactor: film?.iridescenceFactor,
-          iridescenceBaseIor: material.extensions?.KHR_materials_ior?.ior,
-          iridescenceIor: film?.iridescenceIor,
-          iridescenceThicknessMinimum: film?.iridescenceThicknessMinimum,
-          iridescenceThicknessMaximum: film?.iridescenceThicknessMaximum,
-          iridescenceTexture: textures[14] ? images[14] : null,
-          iridescenceThicknessTexture: textures[15] ? images[15] : null,
-          iridescenceTexCoords: [film?.iridescenceTexture?.texCoord ?? 0, film?.iridescenceThicknessTexture?.texCoord ?? 0],
-          anisotropyStrength: anisotropy?.anisotropyStrength,
-          anisotropyRotation: anisotropy?.anisotropyRotation,
-          anisotropyTexture: textures[16] ? images[16] : null,
-          anisotropyTexCoord: anisotropy?.anisotropyTexture?.texCoord ?? 0,
-          sheenTexCoords: [sheen?.sheenColorTexture?.texCoord ?? 0, sheen?.sheenRoughnessTexture?.texCoord ?? 0],
-          thicknessFactor: volume?.thicknessFactor,
-          attenuationColor: volume?.attenuationColor,
-          inverseAttenuationDistance: distance === undefined ? 0 : 1 / distance,
-        }),
-      )
-    } catch (e) {
-      for (const im of images) im.bitmap?.close()
-      throw e
-    }
+        normalScale: material.normalTexture?.scale ?? 1,
+        occlusionStrength: material.occlusionTexture?.strength ?? 1,
+        occlusionTexCoord: occlusionStreams.get(materialIndex) ?? material.occlusionTexture?.texCoord ?? 0,
+        independentUVTransform: independentUVTransforms.get(materialIndex),
+        independentUVMaps: independentUVMaps.get(materialIndex),
+        emissive: (material.emissiveFactor || [0, 0, 0]).map((v) => v * emissiveStrength),
+        baseColorTexture: textures[0] ? images[0] : null,
+        normalTexture: textures[1] ? images[1] : null,
+        metallicRoughnessTexture: textures[2] ? images[2] : null,
+        occlusionTexture: textures[3] ? images[3] : null,
+        emissiveTexture: textures[4] ? images[4] : null,
+        clearcoatTexture: textures[5] ? images[5] : null,
+        clearcoatRoughnessTexture: textures[6] ? images[6] : null,
+        clearcoatNormalTexture: textures[7] ? images[7] : null,
+        transmissionTexture: images[8],
+        thicknessTexture: images[9],
+        specularTexture: images[10],
+        specularColorTexture: images[11],
+        specularTexCoords: [specular?.specularTexture?.texCoord ?? 0, specular?.specularColorTexture?.texCoord ?? 0],
+        thicknessFactor: volume?.thicknessFactor,
+        attenuationColor: volume?.attenuationColor,
+        inverseAttenuationDistance: distance === undefined ? 0 : 1 / distance,
+        sheenColorFactor: sheen?.sheenColorFactor,
+        sheenRoughnessFactor: sheen?.sheenRoughnessFactor,
+        sheenColorTexture: images[12],
+        sheenRoughnessTexture: images[13],
+        iridescenceFactor: film?.iridescenceFactor,
+        iridescenceBaseIor: material.extensions?.KHR_materials_ior?.ior,
+        iridescenceIor: film?.iridescenceIor,
+        iridescenceThicknessMinimum: film?.iridescenceThicknessMinimum,
+        iridescenceThicknessMaximum: film?.iridescenceThicknessMaximum,
+        iridescenceTexture: images[14],
+        iridescenceThicknessTexture: images[15],
+        anisotropyStrength: anisotropy?.anisotropyStrength,
+        anisotropyRotation: anisotropy?.anisotropyRotation,
+        anisotropyTexture: images[16],
+        anisotropyTexCoord: anisotropy?.anisotropyTexture?.texCoord ?? 0,
+        iridescenceTexCoords: [film?.iridescenceTexture?.texCoord ?? 0, film?.iridescenceThicknessTexture?.texCoord ?? 0],
+        sheenTexCoords: [sheen?.sheenColorTexture?.texCoord ?? 0, sheen?.sheenRoughnessTexture?.texCoord ?? 0],
+      }),
+    )
   }
-  return packMaterials({
+  const data = {
     animation,
     hasTransmission,
     vertices: new Float32Array(vertices),
     sourceMinimum: min,
     sourceMaximum: max,
     materials,
-  })
+  }
+  return pack ? packMaterials(data) : data
 }
 
 export function validateCamera(c) {

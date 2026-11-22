@@ -1,4 +1,4 @@
-import { canUseDeferred } from './RasterPipeline.js'
+import { canUseDeferred, canUseHalfReflections } from './RasterPipeline.js'
 import { modelVertexFloats, modelTriangleFloats } from './ModelVertex.js'
 import { createHybridProbes, probeSceneBounds } from './HybridProbes.js'
 import { PickMesh } from './Picking.js'
@@ -11,7 +11,8 @@ import { loadGLB, sceneUniforms } from './ModelData.js'
 import { fallbackEnvironment } from './EnvironmentData.js'
 
 const modelTextureBinding = (i) => (i < 5 ? i + 2 : i + 23)
-const gBufferBindings = [17, 18, 19, 20, 21, 22, 23, 24, 31, 32, 33]
+const gBufferBindings = [17, 18, 19, 20, 21, 22, 23, 24, 31, 33, 34]
+const halfGBufferBindings = [...gBufferBindings, 32]
 function cubeTexture(device, data) {
   const texture = device.createTexture({
     size: [data.mips[0].size, data.mips[0].size, 6],
@@ -40,6 +41,8 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
   const data = suppliedData || (await loadGLB(url, loadOptions)),
     resources = []
   const hasSheen = data.materials?.some((material) => material.sheenColorFactor?.some((value) => value > 0))
+  // Keep the inactive sheen lobe out of all lighting shaders, including the ray-hit paths.
+  const materialShader = (name) => (hasSheen ? name : name + '-no-sheen')
   let instanceBuffer,
     sceneDraws = null,
     rasterGlobals = 0,
@@ -57,8 +60,7 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
     pathView
   try {
     const animator = createAnimationPlayer(data)
-    // Compile the unused sheen lobe out of WebGPU forward pipelines.
-    const forwardShader = hasSheen ? shaderURL : shaderURL.replace(/model\.json$/, 'model-no-sheen.json')
+    const forwardShader = shaderURL.replace(/model\.json$/, materialShader('model') + '.json')
     const response = await fetch(forwardShader)
     if (!response.ok) throw Error('Missing model shader package: ' + shaderURL)
     const shader = await response.json()
@@ -190,24 +192,35 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
           { binding: 14, resource: { buffer: instanceBuffer } },
         ],
       })
-    const gBufferLayout = device.createBindGroupLayout({
-      entries: gBufferBindings.map((binding) => ({
-        binding,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'float' },
-      })),
-    })
+    const makeGBufferLayout = (bindings) =>
+      device.createBindGroupLayout({
+        entries: bindings.map((binding) => ({
+          binding,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: 'float' },
+        })),
+      })
+    const gBufferLayout = makeGBufferLayout(gBufferBindings)
+    const opaqueColorLayout = makeGBufferLayout([17])
+    const halfGBufferLayout = canUseHalfReflections(device.limits)
+      ? makeGBufferLayout(halfGBufferBindings)
+      : null
     const probeLayout = device.createBindGroupLayout({
       entries: [
         { binding: 25, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
         { binding: 26, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     })
-    let probes, probeDeferred, probeBounds, probeLightingKey, probeEnabled
+    let probes,
+      probeDeferred,
+      probeDeferredHalf,
+      probeReflectionPipeline,
+      probeSharedUpdatePipeline,
+      probeShader,
+      probeBounds,
+      probeLightingKey,
+      probeEnabled
     let bindGroup = group(cube, backgroundCube)
-    const opaqueColorLayout = device.createBindGroupLayout({
-      entries: [{ binding: 17, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }],
-    })
     async function pipelineFor(
       shader,
       sky = false,
@@ -219,6 +232,8 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
       oit = false,
       hybridShadow = false,
       probe = false,
+      halfReflection = false,
+      halfCombine = false,
       noDepth = false,
     ) {
       const vertex = device.createShaderModule({ code: shader.vert }),
@@ -228,18 +243,21 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         const errors = info.messages.filter((m) => m.type === 'error')
         if (errors.length) throw Error(errors.map((e) => e.message).join('\n'))
       }
+      const surfaceLayout = halfCombine ? halfGBufferLayout : gBufferLayout
       return device.createRenderPipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: probe
-            ? [layout, gBufferLayout, probeLayout]
-            : deferred || hybridShadow
-              ? [layout, gBufferLayout]
-              : oit ? [layout, opaqueColorLayout] : [layout],
+            ? [layout, surfaceLayout, probeLayout]
+            : deferred || hybridShadow || halfReflection
+              ? [layout, surfaceLayout]
+              : oit
+                ? [layout, opaqueColorLayout]
+                : [layout],
         }),
         vertex: {
           module: vertex,
           entryPoint:
-            deferred || hybridShadow
+            deferred || hybridShadow || halfReflection
               ? 'SkyVSMain'
               : motion
                 ? sky
@@ -251,21 +269,25 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         },
         fragment: {
           module: fragment,
-          entryPoint: hybridShadow
-            ? 'HybridShadowPSMain'
-            : oit
-              ? 'OITPSMain'
-              : deferred
-                ? 'DeferredPSMain'
-                : gbuffer
-                  ? 'GBufferPSMain'
-                  : motion
-                    ? sky
-                      ? 'SkyMotionPSMain'
-                      : 'MotionPSMain'
-                    : sky
-                      ? 'SkyPSMain'
-                      : 'PSMain',
+          entryPoint: halfReflection
+            ? halfReflection === 'ao'
+              ? 'HybridAOPSMain'
+              : 'HybridReflectionPSMain'
+            : hybridShadow
+              ? 'HybridShadowPSMain'
+              : oit
+                ? 'OITPSMain'
+                : deferred
+                  ? 'DeferredPSMain'
+                  : gbuffer
+                    ? 'GBufferPSMain'
+                    : motion
+                      ? sky
+                        ? 'SkyMotionPSMain'
+                        : 'MotionPSMain'
+                      : sky
+                        ? 'SkyPSMain'
+                        : 'PSMain',
           targets: Array.from({ length: oit ? 2 : gbuffer ? 7 : hybridShadow ? 4 : 1 }, (_, i) => ({
             ...(oit
               ? {
@@ -286,13 +308,16 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         multisample: { count: samples },
-        ...(!noDepth && {
-          depthStencil: {
-            format: 'depth32float',
-            depthWriteEnabled: !sky && !deferred && !oit && !hybridShadow,
-            depthCompare: sky || deferred || hybridShadow ? 'always' : oit ? 'less-equal' : 'less',
-          },
-        }),
+        ...(halfReflection || noDepth
+          ? {}
+          : {
+              depthStencil: {
+                format: 'depth32float',
+                depthWriteEnabled: !sky && !deferred && !oit && !hybridShadow,
+                depthCompare:
+                  sky || deferred || hybridShadow ? 'always' : oit ? 'less-equal' : 'less',
+              },
+            }),
       })
     }
     const pipeline = await pipelineFor(shader)
@@ -303,23 +328,25 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
     async function updateProbes(lighting, light, environmentSettings) {
       probeEnabled = false
       if (!hybrid?.probeGI) return
-      probeBounds ||= probeSceneBounds(data.vertices, cachedBytes, sceneDraws)
-      if (!probeBounds) return
+      const bounds = hybrid.probeBounds
+        ? [hybrid.probeBounds.minimum, hybrid.probeBounds.maximum]
+        : (probeBounds ||= probeSceneBounds(data.vertices, cachedBytes, sceneDraws))
+      if (!bounds) return
       if (!probes) {
         const response = await fetch(
-          new URL('model-probes.json', new URL(shaderURL, document.baseURI)),
+          new URL(materialShader('model-probes') + '.json', new URL(shaderURL, document.baseURI)),
         )
         if (!response.ok) throw Error('Missing probe shader package')
-        const shaders = await response.json()
+        probeShader = await response.json()
         const compute = await device.createComputePipelineAsync({
           layout: 'auto',
           compute: {
-            module: device.createShaderModule({ code: shaders.compute }),
+            module: device.createShaderModule({ code: probeShader.compute }),
             entryPoint: 'HybridProbeUpdateCS',
           },
         })
         probeDeferred = await pipelineFor(
-          shaders,
+          probeShader,
           false,
           1,
           false,
@@ -332,22 +359,72 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         )
         probes = createHybridProbes(device, compute, probeLayout)
       }
-      const key = JSON.stringify([
-        lighting,
-        light,
-        environmentSettings,
-        hybrid.shadows,
-        hybrid.shadowSamples,
-      ])
+      if (hybrid.reflections && hybrid.halfResolutionReflections && !probeDeferredHalf)
+        probeDeferredHalf = await pipelineFor(
+          { vert: probeShader.vert, frag: probeShader.halfFrag },
+          false,
+          1,
+          false,
+          true,
+          false,
+          true,
+          false,
+          false,
+          true,
+          false,
+          true,
+        )
+      if (
+        hybrid.reflections &&
+        hybrid.halfResolutionReflections &&
+        hybrid.probeSkyLighting &&
+        (hybrid.probeReflectionLighting || hybrid.probeRoughReflections) &&
+        environment &&
+        !probeReflectionPipeline
+      )
+        probeReflectionPipeline = await pipelineFor(
+          { vert: probeShader.vert, frag: probeShader.reflectionFrag },
+          false,
+          1,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          true,
+          true,
+        )
+      const sharedRays = hybrid.probeSharedRays || hybrid.probeOctahedral
+      if (sharedRays && !probeSharedUpdatePipeline)
+        probeSharedUpdatePipeline = await device.createComputePipelineAsync({
+          layout: 'auto',
+          compute: {
+            module: device.createShaderModule({ code: probeShader.sharedCompute }),
+            entryPoint: 'HybridProbeUpdateCS',
+          },
+        })
+      const key = JSON.stringify([lighting, light, environmentSettings])
       if (key !== probeLightingKey) probes.invalidate()
       probeLightingKey = key
-      probes.update(probeBounds, rasterGlobals, [
-        { binding: 0, resource: { buffer: uniform } },
-        ...textures.map((t, i) => ({ binding: modelTextureBinding(i), resource: t.createView() })),
-        { binding: 7, resource: sampler },
-        { binding: 8, resource: cube.createView({ dimension: 'cube' }) },
-        { binding: 14, resource: { buffer: instanceBuffer } },
-      ])
+      probes.update(
+        bounds,
+        rasterGlobals,
+        [
+          { binding: 0, resource: { buffer: uniform } },
+          ...textures.map((t, i) => ({
+            binding: modelTextureBinding(i),
+            resource: t.createView(),
+          })),
+          { binding: 7, resource: sampler },
+          { binding: 8, resource: cube.createView({ dimension: 'cube' }) },
+          { binding: 14, resource: { buffer: instanceBuffer } },
+        ],
+        hybrid.probeBounds ? 0 : 0.25,
+        !!environment && hybrid.probeSkyLighting && hybrid.probeMultiBounce,
+        sharedRays ? probeSharedUpdatePipeline : null,
+        hybrid.probeOctahedral,
+      )
       probeEnabled = true
     }
     function writeGlobals() {
@@ -370,6 +447,17 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         ],
         4,
       )
+      record[8] = hybrid?.clearcoatReflections ? 1 : 0
+      record[10] = hybrid?.probeSkyLighting ? 1 : 0
+      record[11] = hybrid?.probeMultiBounce ? 1 : 0
+      record[12] = hybrid?.probeSkyLighting && hybrid.probeReflectionLighting ? 1 : 0
+      record[13] = hybrid?.mirrorReflections ? 1 : 0
+      record[14] = hybrid?.probeSkyLighting && hybrid.probeRoughReflections ? 1 : 0
+      record[15] =
+        (hybrid?.blueNoiseAO ? 1 : 0) |
+        (hybrid?.blueNoiseShadows ? 2 : 0) |
+        (hybrid?.blueNoiseReflections ? 4 : 0)
+      record[9] = hybrid?.reflectionDenoising && hybrid.reflectionHitReprojection ? 1 : 0
       record.set([...rasterFog.color, ['off', 'linear', 'exp2'].indexOf(rasterFog.mode)], 32)
       record.set([rasterFog.nearDistance, rasterFog.farDistance, rasterFog.density, 0], 36)
       record.set(
@@ -461,7 +549,16 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
       data,
       useDeferredMaterialLayers: !!hasSheen,
       setHybrid(settings) {
-        if (hybrid !== settings) probes?.invalidate()
+        if (
+          hybrid !== settings &&
+          (hybrid?.probeGI !== settings?.probeGI ||
+            hybrid?.probeSkyLighting !== settings?.probeSkyLighting ||
+            hybrid?.probeMultiBounce !== settings?.probeMultiBounce ||
+            hybrid?.probeSharedRays !== settings?.probeSharedRays ||
+            hybrid?.probeOctahedral !== settings?.probeOctahedral ||
+            JSON.stringify(hybrid?.probeBounds) !== JSON.stringify(settings?.probeBounds))
+        )
+          probes?.invalidate()
         hybrid = settings
         writeGlobals()
         refreshSingleShadows()
@@ -482,13 +579,13 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
           const dir = shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1)
           const packages = await Promise.all(
             [
-              hasSheen ? 'model-aa' : 'model-aa-no-sheen',
+              materialShader('model-aa'),
               'sky-aa',
               'model-motion',
               'sky-motion',
               'model-gbuffer',
-              'model-deferred',
-              hasSheen ? 'model-oit' : 'model-oit-no-sheen',
+              materialShader('model-deferred'),
+              materialShader('model-oit'),
               'model-hybrid-shadow',
             ].map(async (n) => {
               const r = await fetch(dir + n + '.json')
@@ -537,6 +634,43 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
           aaPipelines.motion = await pipelineFor(packages[2], false, 1, true, true)
           aaPipelines.skyMotion = await pipelineFor(packages[3], true, 1, true, true)
         }
+        if (hybrid?.reflections && hybrid.halfResolutionReflections && !aaPipelines.deferredHalf) {
+          const dir = shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1)
+          const [trace, combine] = await Promise.all(
+            ['model-hybrid-reflection', 'model-deferred-half'].map(async (name) => {
+              const response = await fetch(dir + materialShader(name) + '.json')
+              if (!response.ok) throw Error('Missing raster AA shader ' + name)
+              return response.json()
+            }),
+          )
+          aaPipelines.halfReflection = await pipelineFor(
+            trace,
+            true,
+            1,
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+          )
+          aaPipelines.deferredHalf = await pipelineFor(
+            combine,
+            false,
+            1,
+            false,
+            true,
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+            true,
+          )
+        }
         if (halfShadows && !aaPipelines.halfShadow) {
           const path =
             shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1) + 'model-hybrid-shadow.json'
@@ -552,6 +686,8 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
             false,
             false,
             true,
+            false,
+            false,
             false,
             true,
           )
@@ -571,10 +707,47 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         currentScene[66] = halfShadows ? 1 : 0
         currentScene[67] = hybrid ? 1 : 0
         currentScene[71] = hybrid?.shadowSamples || 1
-        currentScene[87] = hybrid?.temporalReconstruction ? frames + 1 : 0
         currentScene[79] = hybrid?.shadows ? 1 : 0
-        currentScene[87] = hybrid?.temporalReconstruction ? frames + 1 : 0
-        currentScene[83] = hybrid?.view === 'shadows' ? hybrid.shadowLight + 1 : 0
+        const denoiseReflections =
+          hybrid?.reflections && hybrid.halfResolutionReflections && hybrid.reflectionDenoising
+        // Negative frame indices rotate reflection rays without changing AO or shadow sampling.
+        const temporalShadows =
+          hybrid?.shadows &&
+          hybrid.shadowTemporalReconstruction &&
+          hybrid.view === 'final' &&
+          rasterSettings?.view === 'final'
+        const halfAO =
+          hybrid?.ambientOcclusion &&
+          hybrid.halfResolutionAO &&
+          hybrid.view === 'final' &&
+          rasterSettings?.view === 'final'
+        if (halfAO && !aaPipelines.hybridAO) {
+          const r = await fetch(
+            shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1) + 'model-hybrid-ao.json',
+          )
+          if (!r.ok) throw Error('Missing Hybrid AO shader')
+          aaPipelines.hybridAO = await pipelineFor(
+            await r.json(),
+            false,
+            1,
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            'ao',
+          )
+        }
+        currentScene[58] = halfAO ? -(frames + 1) : 0
+        currentScene[87] = hybrid?.temporalReconstruction
+          ? frames + 1
+          : denoiseReflections
+            ? -(frames + 1)
+            : 0
+        currentScene[83] =
+          hybrid?.view === 'shadows' ? hybrid.shadowLight + 1 : temporalShadows ? -(frames + 1) : 0
         currentScene[63] =
           (rasterSettings?.view && rasterSettings.view !== 'final') ||
           (hybrid && hybrid.view !== 'final')
@@ -602,28 +775,53 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         const palette = data.jointMatrices || new Float32Array(16)
         device.queue.writeBuffer(previousPalette, 0, frames && lastPalette ? lastPalette : palette)
       },
+      writeReflectionReprojection(uniforms) {
+        const previous = lastScene || currentScene
+        uniforms.splice(28, 16, ...previous.subarray(0, 16))
+        uniforms.splice(44, 4, ...currentScene.subarray(16, 20))
+        uniforms.splice(48, 12, ...currentScene.subarray(40, 52))
+        uniforms.splice(60, 4, ...previous.subarray(16, 20))
+      },
       drawAA(pass, motion, count, settings, program, gbuffers) {
-        if (program === -5 || program === -7) {
+        if (program === -5 || program === -7 || program === -8 || program === -9) {
+          const half = hybrid?.reflections && hybrid.halfResolutionReflections
+          const halfCombine = program === -5 && half
           pass.setBindGroup(0, bindGroup)
           pass.setBindGroup(
             1,
             device.createBindGroup({
-              layout: gBufferLayout,
-              entries: gBufferBindings.map((binding, i) => ({
+              layout: halfCombine ? halfGBufferLayout : gBufferLayout,
+              entries: (halfCombine ? halfGBufferBindings : gBufferBindings).map((binding, i) => ({
                 binding,
-                resource: gbuffers[i].createView(),
+                resource: gbuffers[binding >= 31 ? binding - 23 : i].createView(),
               })),
             }),
           )
-          if (program === -5 && probeEnabled) pass.setBindGroup(2, probes.read)
+          const probeReflection =
+            program === -8 &&
+            probeEnabled &&
+            environment &&
+            hybrid.probeSkyLighting &&
+            (hybrid.probeReflectionLighting || hybrid.probeRoughReflections)
+          if ((program === -5 && probeEnabled) || probeReflection) pass.setBindGroup(2, probes.read)
           pass.setPipeline(
-            program === -7
-              ? currentScene[66]
-                ? aaPipelines.halfShadow
-                : aaPipelines.hybridShadow
-              : probeEnabled
-                ? probeDeferred
-                : aaPipelines.deferred,
+            program === -9
+              ? aaPipelines.hybridAO
+              : program === -8
+                ? probeReflection
+                  ? probeReflectionPipeline
+                  : aaPipelines.halfReflection
+                : program === -7
+                  ? currentScene[66]
+                    ? aaPipelines.halfShadow
+                    : aaPipelines.hybridShadow
+                  : probeEnabled
+                    ? half
+                      ? probeDeferredHalf
+                      : probeDeferred
+                    : half
+                      ? aaPipelines.deferredHalf
+                      : aaPipelines.deferred,
           )
           pass.draw(3)
           return

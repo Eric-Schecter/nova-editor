@@ -49,6 +49,7 @@ export function validateMaterial(m) {
     occlusionTexCoord: m.occlusionTexCoord ?? 0,
     emissive: m.emissive ?? [0, 0, 0],
     specularFactor: m.specularFactor ?? 1,
+    hybridReflectionStrength: m.hybridReflectionStrength ?? null,
     clearcoatFactor: m.clearcoatFactor ?? 0,
     clearcoatRoughnessFactor: m.clearcoatRoughnessFactor ?? 0,
     clearcoatNormalScale: m.clearcoatNormalScale ?? 1,
@@ -141,6 +142,10 @@ export function validateMaterial(m) {
     range(out[key], max)
     out[key] = Math.fround(out[key])
   }
+  if (out.hybridReflectionStrength !== null) {
+    range(out.hybridReflectionStrength, 1)
+    out.hybridReflectionStrength = Math.fround(out.hybridReflectionStrength)
+  }
   for (const key of [...materialTextureKeys, "transmissionTexture", "thicknessTexture", "specularTexture", "specularColorTexture", "sheenColorTexture", "sheenRoughnessTexture", "iridescenceTexture", "iridescenceThicknessTexture", "anisotropyTexture"]) {
     const im = m[key]
     if (im == null) {
@@ -213,9 +218,11 @@ export function packMaterials(data) {
       x = (i % cols) * stride,
       y = Math.floor(i / cols) * stride
     for (const k of [0, 5, 10, 15, 16, 21, 26, 31]) record[k] = 1
-    // Material records reuse the first two columns of the unused world matrix.
+    // Material records reuse the unused world matrix.
     record.set(m.specularColorFactor ?? [1, 1, 1], 0)
     record[3] = m.specularFactor ?? 1
+    record[10] = (m.specularTexture ? 1 : 0) | (m.specularColorTexture ? 2 : 0) |
+      ((m.specularTexCoords?.[0] ?? 0) << 2) | ((m.specularTexCoords?.[1] ?? 0) << 3)
     record[4] = m.clearcoatFactor ?? 0
     record[5] = m.clearcoatRoughnessFactor ?? 0
     record[6] = m.occlusionTexCoord ?? 0
@@ -226,8 +233,7 @@ export function packMaterials(data) {
     const uv = m.clearcoatTexCoords ?? [0, 0, 0]
     record[8] = uv[0] | (uv[1] << 1) | (uv[2] << 2)
     record[9] = m.clearcoatNormalScale ?? 1
-    record[10] = (m.specularTexture ? 1 : 0) | (m.specularColorTexture ? 2 : 0) |
-      ((m.specularTexCoords?.[0] ?? 0) << 2) | ((m.specularTexCoords?.[1] ?? 0) << 3)
+    record[11] = m.hybridReflectionStrength ?? -1
     record.set(m.attenuationColor ?? [1, 1, 1], 12)
     record[15] = (m.thicknessFactor ?? 0) * (m.inverseAttenuationDistance ?? 0)
     record.set(m.sheenColorFactor ?? [0, 0, 0], 16)
@@ -269,50 +275,47 @@ export function packMaterials(data) {
       for (let k = 0; k < mapCount; k++) {
         const src = m[materialTextureKeys[k]] || defaults[k],
           dst = data.images[k].pixels
-        for (let py = 0; py < stride; py++)
-          for (let px = 0; px < stride; px++) {
-            const sx = Math.round(
-                Math.max(0, Math.min(1, (px - 2) / Math.max(1, tile - 1))) * (src.width - 1),
-              ),
-              sy = Math.round(
-                Math.max(0, Math.min(1, (py - 2) / Math.max(1, tile - 1))) * (src.height - 1),
-              ),
-              from = (sy * src.width + sx) * 4
-            const target = ((y + py) * width + x + px) * 4
-            dst.set(src.pixels.subarray(from, from + 4), target)
-            const channel = (map, component) => {
-              if (!map) return 255
-              const x = Math.round(Math.max(0, Math.min(1, (px - 2) / Math.max(1, tile - 1))) * (map.width - 1))
-              const y = Math.round(Math.max(0, Math.min(1, (py - 2) / Math.max(1, tile - 1))) * (map.height - 1))
-              return map.pixels[(y * map.width + x) * 4 + component]
-            }
-            if (k === 2) {
-              dst[target] = channel(m.thicknessTexture, 1)
-              dst[target + 3] = channel(m.transmissionTexture, 0)
-            }
-            if (k === 1 && m.specularTexture)
-              dst[target + 3] = channel(m.specularTexture, 3)
-            if (k === 6) {
-              if (m.sheenRoughnessTexture) dst[target + 3] = channel(m.sheenRoughnessTexture, 3)
-              if (m.iridescenceTexture) dst[target] = channel(m.iridescenceTexture, 0)
-              if (m.iridescenceThicknessTexture) dst[target + 2] = channel(m.iridescenceThicknessTexture, 1)
-            }
-            if (k === 7 && m.anisotropyTexture)
-              dst[target + 3] = channel(m.anisotropyTexture, 2)
-            if (k === 4 && m.anisotropyTexture) {
-              const dx = channel(m.anisotropyTexture, 0) * (2 / 255) - 1
-              const dy = channel(m.anisotropyTexture, 1) * (2 / 255) - 1
-              const turn = Math.atan2(dy, dx) / Math.PI
-              dst[target + 3] = Math.round((turn - Math.floor(turn)) * 256) & 255
-            }
+        const coordinate = (p, size) =>
+          Math.round(Math.max(0, Math.min(1, (p - 2) / Math.max(1, tile - 1))) * (size - 1))
+        const columns = Int32Array.from(
+          { length: stride },
+          (_, px) => coordinate(px, src.width) * 4,
+        )
+        for (let py = 0; py < stride; py++) {
+          const sourceRow = coordinate(py, src.height) * src.width * 4
+          let to = ((y + py) * width + x) * 4
+          for (let px = 0; px < columns.length; px++) {
+            const column = columns[px]
+            const packedChannel = (image, channel) => image
+              ? image.pixels[(coordinate(py, image.height) * image.width + coordinate(px, image.width)) * 4 + channel]
+              : 255
+            const from = sourceRow + column
+            dst[to++] = k === 2 ? packedChannel(m.thicknessTexture, 1) :
+              k === 6 && m.iridescenceTexture ? packedChannel(m.iridescenceTexture, 0) : src.pixels[from]
             const packedColor = k === 3 ? m.specularColorTexture : k === 5 ? m.sheenColorTexture : null
             if (packedColor) {
-              for (let component = 0; component < 3; component++) {
-                const value = channel(packedColor, component) / 255
-                dst[target + component + 1] = Math.round(255 * (value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4))
+              for (let channel = 0; channel < 3; channel++)
+              {
+                const value = packedChannel(packedColor, channel) / 255
+                dst[to++] = Math.round(255 * (value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4))
+              }
+            } else {
+              dst[to++] = src.pixels[from + 1]
+              dst[to++] = k === 6 && m.iridescenceThicknessTexture ?
+                packedChannel(m.iridescenceThicknessTexture, 1) : src.pixels[from + 2]
+              dst[to++] = k === 2 ? packedChannel(m.transmissionTexture, 0) :
+                k === 1 && m.specularTexture ? packedChannel(m.specularTexture, 3) :
+                k === 6 && m.sheenRoughnessTexture ? packedChannel(m.sheenRoughnessTexture, 3) :
+                k === 7 && m.anisotropyTexture ? packedChannel(m.anisotropyTexture, 2) : src.pixels[from + 3]
+              if (k === 4 && m.anisotropyTexture) {
+                const dx = packedChannel(m.anisotropyTexture, 0) * (2 / 255) - 1
+                const dy = packedChannel(m.anisotropyTexture, 1) * (2 / 255) - 1
+                const turn = Math.atan2(dy, dx) / Math.PI
+                dst[to - 1] = Math.round((turn - Math.floor(turn)) * 256) & 255
               }
             }
           }
+        }
       }
   })
   return data

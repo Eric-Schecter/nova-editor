@@ -383,6 +383,47 @@ export function attachParameterPanel(
         slider(renderer, 'hybrid_aoSamples', 'AO rays/pixel', 'AO rays per pixel', 1, 32, 1, (v) =>
           adapter.setHybrid({ aoSamples: v }),
         )
+        const halfAORow = document.createElement('label'),
+          halfAOToggle = document.createElement('input')
+        halfAORow.textContent = 'Half-resolution Hybrid AO'
+        halfAOToggle.type = 'checkbox'
+        halfAOToggle.setAttribute('aria-label', 'Half-resolution Hybrid AO')
+        halfAOToggle.checked = h.halfResolutionAO
+        halfAOToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ halfResolutionAO: halfAOToggle.checked })),
+        )
+        halfAORow.prepend(halfAOToggle)
+        renderer.append(halfAORow)
+        fields.set('hybrid_halfResolutionAO', { input: halfAOToggle })
+        const blueNoiseAORow = document.createElement('label'),
+          blueNoiseAOToggle = document.createElement('input')
+        blueNoiseAORow.textContent = 'AO blue noise'
+        blueNoiseAOToggle.type = 'checkbox'
+        blueNoiseAOToggle.setAttribute('aria-label', 'AO blue noise')
+        blueNoiseAOToggle.checked = h.blueNoiseAO
+        blueNoiseAOToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ blueNoiseAO: blueNoiseAOToggle.checked })),
+        )
+        blueNoiseAORow.prepend(blueNoiseAOToggle)
+        renderer.append(blueNoiseAORow)
+        fields.set('hybrid_blueNoiseAO', { input: blueNoiseAOToggle })
+        for (const [key, label] of [
+          ['blueNoiseShadows', 'Shadow blue noise'],
+          ['blueNoiseReflections', 'Reflection blue noise'],
+        ]) {
+          const row = document.createElement('label'),
+            toggle = document.createElement('input')
+          row.textContent = label
+          toggle.type = 'checkbox'
+          toggle.setAttribute('aria-label', label)
+          toggle.checked = h[key]
+          toggle.addEventListener('change', () =>
+            change(() => adapter.setHybrid({ [key]: toggle.checked })),
+          )
+          row.prepend(toggle)
+          renderer.append(row)
+          fields.set('hybrid_' + key, { input: toggle })
+        }
         const probeRow = document.createElement('label'),
           probeToggle = document.createElement('input')
         probeRow.textContent = 'DDGI probes'
@@ -397,6 +438,82 @@ export function attachParameterPanel(
         probeRow.prepend(probeToggle)
         renderer.append(probeRow)
         fields.set('hybrid_probeGI', { input: probeToggle })
+        const sharedRaysRow = document.createElement('label'),
+          sharedRaysToggle = document.createElement('input')
+        sharedRaysRow.textContent = 'DDGI shared rays'
+        sharedRaysToggle.type = 'checkbox'
+        sharedRaysToggle.setAttribute('aria-label', 'DDGI shared rays')
+        sharedRaysToggle.checked = h.probeSharedRays
+        sharedRaysToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ probeSharedRays: sharedRaysToggle.checked })),
+        )
+        sharedRaysRow.prepend(sharedRaysToggle)
+        renderer.append(sharedRaysRow)
+        fields.set('hybrid_probeSharedRays', { input: sharedRaysToggle })
+        const octahedralRow = document.createElement('label'),
+          octahedralToggle = document.createElement('input')
+        octahedralRow.textContent = 'DDGI octahedral probes'
+        octahedralToggle.type = 'checkbox'
+        octahedralToggle.setAttribute('aria-label', 'DDGI octahedral probes')
+        octahedralToggle.checked = h.probeOctahedral
+        octahedralToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ probeOctahedral: octahedralToggle.checked })),
+        )
+        octahedralRow.prepend(octahedralToggle)
+        renderer.append(octahedralRow)
+        fields.set('hybrid_probeOctahedral', { input: octahedralToggle })
+        const probeSkyRow = document.createElement('label'),
+          probeSkyToggle = document.createElement('input')
+        probeSkyRow.textContent = 'DDGI sky lighting'
+        probeSkyToggle.type = 'checkbox'
+        probeSkyToggle.setAttribute('aria-label', 'DDGI sky lighting')
+        probeSkyToggle.checked = h.probeSkyLighting
+        probeSkyToggle.disabled = probeToggle.disabled || !h.probeGI
+        probeSkyToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ probeSkyLighting: probeSkyToggle.checked })),
+        )
+        probeSkyRow.prepend(probeSkyToggle)
+        renderer.append(probeSkyRow)
+        fields.set('hybrid_probeSkyLighting', { input: probeSkyToggle })
+        const multiBounceRow = document.createElement('label'),
+          multiBounceToggle = document.createElement('input')
+        multiBounceRow.textContent = 'DDGI multi-bounce'
+        multiBounceToggle.type = 'checkbox'
+        multiBounceToggle.setAttribute('aria-label', 'DDGI multi-bounce')
+        multiBounceToggle.checked = h.probeMultiBounce
+        multiBounceToggle.disabled = !h.probeGI || !h.probeSkyLighting
+        multiBounceToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ probeMultiBounce: multiBounceToggle.checked })),
+        )
+        multiBounceRow.prepend(multiBounceToggle)
+        renderer.append(multiBounceRow)
+        fields.set('hybrid_probeMultiBounce', { input: multiBounceToggle })
+        const probeReflectionRow = document.createElement('label'),
+          probeReflectionToggle = document.createElement('input')
+        probeReflectionRow.textContent = 'DDGI reflection lighting'
+        probeReflectionToggle.type = 'checkbox'
+        probeReflectionToggle.setAttribute('aria-label', 'DDGI reflection lighting')
+        probeReflectionToggle.checked = h.probeReflectionLighting
+        probeReflectionToggle.addEventListener('change', () =>
+          change(() =>
+            adapter.setHybrid({ probeReflectionLighting: probeReflectionToggle.checked }),
+          ),
+        )
+        probeReflectionRow.prepend(probeReflectionToggle)
+        renderer.append(probeReflectionRow)
+        fields.set('hybrid_probeReflectionLighting', { input: probeReflectionToggle })
+        const roughProbeRow = document.createElement('label'),
+          roughProbeToggle = document.createElement('input')
+        roughProbeRow.textContent = 'DDGI rough reflections'
+        roughProbeToggle.type = 'checkbox'
+        roughProbeToggle.setAttribute('aria-label', 'DDGI rough reflections')
+        roughProbeToggle.checked = h.probeRoughReflections
+        roughProbeToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ probeRoughReflections: roughProbeToggle.checked })),
+        )
+        roughProbeRow.prepend(roughProbeToggle)
+        renderer.append(roughProbeRow)
+        fields.set('hybrid_probeRoughReflections', { input: roughProbeToggle })
         const bounceRow = document.createElement('label'),
           bounceToggle = document.createElement('input')
         bounceRow.textContent = 'Diffuse bounce'
@@ -455,6 +572,107 @@ export function attachParameterPanel(
           1,
           (v) => adapter.setHybrid({ reflectionSamples: v }),
         )
+        const reflectionResolutionRow = document.createElement('label'),
+          reflectionResolutionToggle = document.createElement('input')
+        reflectionResolutionRow.textContent = 'Half-resolution reflections'
+        reflectionResolutionToggle.type = 'checkbox'
+        reflectionResolutionToggle.checked = h.halfResolutionReflections
+        reflectionResolutionToggle.disabled =
+          !h.reflections || adapter.getHybridCapabilities?.()?.halfResolutionReflections === false
+        reflectionResolutionToggle.addEventListener('change', () =>
+          adapter.setHybrid({ halfResolutionReflections: reflectionResolutionToggle.checked }),
+        )
+        reflectionResolutionRow.prepend(reflectionResolutionToggle)
+        renderer.append(reflectionResolutionRow)
+        const clearcoatRow = document.createElement('label'),
+          clearcoatToggle = document.createElement('input')
+        clearcoatRow.textContent = 'Trace clearcoat reflections'
+        clearcoatToggle.type = 'checkbox'
+        clearcoatToggle.checked = h.clearcoatReflections
+        clearcoatToggle.disabled = !h.reflections
+        clearcoatToggle.addEventListener('change', () =>
+          adapter.setHybrid({ clearcoatReflections: clearcoatToggle.checked }),
+        )
+        clearcoatRow.prepend(clearcoatToggle)
+        renderer.append(clearcoatRow)
+        const reflectionDenoiseRow = document.createElement('label'),
+          reflectionDenoiseToggle = document.createElement('input')
+        reflectionDenoiseRow.textContent = 'Reflection temporal denoising'
+        reflectionDenoiseToggle.type = 'checkbox'
+        reflectionDenoiseToggle.checked = h.reflectionDenoising
+        reflectionDenoiseToggle.disabled =
+          reflectionResolutionToggle.disabled || !h.halfResolutionReflections
+        reflectionDenoiseToggle.addEventListener('change', () =>
+          adapter.setHybrid({ reflectionDenoising: reflectionDenoiseToggle.checked }),
+        )
+        reflectionDenoiseRow.prepend(reflectionDenoiseToggle)
+        renderer.append(reflectionDenoiseRow)
+        const svgfRow = document.createElement('label'),
+          svgfToggle = document.createElement('input')
+        svgfRow.textContent = 'Reflection SVGF'
+        svgfToggle.type = 'checkbox'
+        svgfToggle.setAttribute('aria-label', 'Reflection SVGF')
+        svgfToggle.checked = h.reflectionSVGF
+        svgfToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ reflectionSVGF: svgfToggle.checked })),
+        )
+        svgfRow.prepend(svgfToggle)
+        renderer.append(svgfRow)
+        fields.set('hybrid_reflectionSVGF', { input: svgfToggle })
+        const mirrorRow = document.createElement('label'),
+          mirrorToggle = document.createElement('input')
+        mirrorRow.textContent = 'Mirror reflection shortcut'
+        mirrorToggle.type = 'checkbox'
+        mirrorToggle.setAttribute('aria-label', 'Mirror reflection shortcut')
+        mirrorToggle.checked = h.mirrorReflections
+        mirrorToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ mirrorReflections: mirrorToggle.checked })),
+        )
+        mirrorRow.prepend(mirrorToggle)
+        renderer.append(mirrorRow)
+        fields.set('hybrid_mirrorReflections', { input: mirrorToggle })
+        const reflectionReprojectionRow = document.createElement('label'),
+          reflectionReprojectionToggle = document.createElement('input')
+        reflectionReprojectionRow.textContent = 'Reflection hit reprojection'
+        reflectionReprojectionToggle.type = 'checkbox'
+        reflectionReprojectionToggle.setAttribute('aria-label', 'Reflection hit reprojection')
+        reflectionReprojectionToggle.checked = h.reflectionHitReprojection
+        reflectionReprojectionToggle.disabled =
+          reflectionDenoiseToggle.disabled || !h.reflectionDenoising
+        reflectionReprojectionToggle.addEventListener('change', () =>
+          adapter.setHybrid({ reflectionHitReprojection: reflectionReprojectionToggle.checked }),
+        )
+        reflectionReprojectionRow.prepend(reflectionReprojectionToggle)
+        renderer.append(reflectionReprojectionRow)
+        const shadowTemporalRow = document.createElement('label'),
+          shadowTemporalToggle = document.createElement('input')
+        shadowTemporalRow.textContent = 'Shadow temporal reconstruction'
+        shadowTemporalToggle.type = 'checkbox'
+        shadowTemporalToggle.setAttribute('aria-label', 'Shadow temporal reconstruction')
+        shadowTemporalToggle.checked = h.shadowTemporalReconstruction
+        shadowTemporalToggle.addEventListener(
+          'change',
+          () =>
+            change(() =>
+              adapter.setHybrid({ shadowTemporalReconstruction: shadowTemporalToggle.checked }),
+            ),
+          { signal: fieldEvents.signal },
+        )
+        shadowTemporalRow.prepend(shadowTemporalToggle)
+        renderer.append(shadowTemporalRow)
+        fields.set('hybrid_shadowTemporalReconstruction', { input: shadowTemporalToggle })
+        const shadowSVGFRow = document.createElement('label'),
+          shadowSVGFToggle = document.createElement('input')
+        shadowSVGFRow.textContent = 'Shadow SVGF'
+        shadowSVGFToggle.type = 'checkbox'
+        shadowSVGFToggle.setAttribute('aria-label', 'Shadow SVGF')
+        shadowSVGFToggle.checked = h.shadowSVGF
+        shadowSVGFToggle.addEventListener('change', () =>
+          change(() => adapter.setHybrid({ shadowSVGF: shadowSVGFToggle.checked })),
+        )
+        shadowSVGFRow.prepend(shadowSVGFToggle)
+        renderer.append(shadowSVGFRow)
+        fields.set('hybrid_shadowSVGF', { input: shadowSVGFToggle })
         const temporalRow = document.createElement('label'),
           temporalToggle = document.createElement('input')
         temporalRow.textContent = 'Hybrid temporal reconstruction'
@@ -830,7 +1048,44 @@ export function attachParameterPanel(
         if (typeof value === 'boolean') field.input.checked = value
         else field.input.value = value
         if (field.output) field.output.textContent = String(value)
+        if (name === 'halfResolutionAO')
+          field.input.disabled = !adapter.getHybrid().ambientOcclusion
+        if (name === 'blueNoiseAO')
+          field.input.disabled =
+            !adapter.getHybrid().ambientOcclusion || !adapter.getHybrid().halfResolutionAO
+        if (name === 'blueNoiseShadows') field.input.disabled = !adapter.getHybrid().shadows
+        if (name === 'blueNoiseReflections')
+          field.input.disabled =
+            !adapter.getHybrid().reflections || !adapter.getHybrid().halfResolutionReflections
+        if (name === 'reflectionSVGF')
+          field.input.disabled =
+            !adapter.getHybrid().reflections ||
+            !adapter.getHybrid().halfResolutionReflections ||
+            !adapter.getHybrid().reflectionDenoising
+        if (name === 'shadowSVGF')
+          field.input.disabled =
+            !adapter.getHybrid().shadows || !adapter.getHybrid().shadowTemporalReconstruction
+        if (name === 'mirrorReflections') field.input.disabled = !adapter.getHybrid().reflections
         if (name === 'diffuseBounce') field.input.disabled = adapter.getHybrid().probeGI
+        if (
+          [
+            'probeSkyLighting',
+            'probeMultiBounce',
+            'probeReflectionLighting',
+            'probeRoughReflections',
+            'probeSharedRays',
+            'probeOctahedral',
+          ].includes(name)
+        )
+          field.input.disabled =
+            adapter.getHybridCapabilities?.()?.probeGI === false ||
+            !adapter.getHybrid().probeGI ||
+            (['probeMultiBounce', 'probeReflectionLighting', 'probeRoughReflections'].includes(
+              name,
+            ) &&
+              !adapter.getHybrid().probeSkyLighting) ||
+            (['probeReflectionLighting', 'probeRoughReflections'].includes(name) &&
+              !adapter.getHybrid().reflections)
         if (name === 'shadowLight')
           field.input.closest('label').style.display =
             adapter.getHybrid().view === 'shadows' ? '' : 'none'

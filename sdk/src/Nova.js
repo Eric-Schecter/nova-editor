@@ -4,6 +4,8 @@ import {
   copyRasterSettings,
   rasterCapabilities,
   canUseDeferred,
+  canUseHalfReflections,
+  halfReflectionTextureLimit,
   deferredLimits,
   gBufferViews,
 } from './RasterPipeline.js'
@@ -11,7 +13,13 @@ export { modelRasterPipelines, gBufferViews } from './RasterPipeline.js'
 import { copyFog, copyShadows } from './Atmosphere.js'
 import { packMaterials, validateMaterial, materialCapabilities } from './MaterialData.js'
 export { loadMaterialImage } from './MaterialData.js'
-import { copyViewCamera, cameraFromOrbit, copyViewport, resolveViewport } from './Camera.js'
+import {
+  cameraBasis,
+  copyViewCamera,
+  cameraFromOrbit,
+  copyViewport,
+  resolveViewport,
+} from './Camera.js'
 import { createViewportSurface } from './ViewportSurface.js'
 export { cameraFromOrbit } from './Camera.js'
 import { defaultPostProcessing, copyPostProcessing } from './PostProcessing.js'
@@ -34,6 +42,9 @@ export async function createRenderer({ canvas, shaderDirectory = '/generated/' }
   const adapter = await navigator.gpu.requestAdapter()
   if (!adapter) throw Error('No WebGPU adapter available')
   const requiredLimits = canUseDeferred(adapter.limits) ? { ...deferredLimits } : {}
+  if (canUseHalfReflections(adapter.limits))
+    requiredLimits.maxSampledTexturesPerShaderStage = halfReflectionTextureLimit
+  // Point and line raster expansion can exceed the default WebGPU storage limit.
   for (const limit of ['maxBufferSize', 'maxStorageBufferBindingSize'])
     requiredLimits[limit] = Math.min(adapter.limits[limit], 512 * 1024 * 1024)
   const device = await adapter.requestDevice({ requiredLimits })
@@ -62,12 +73,12 @@ class Renderer {
   #hybrid = defaultHybrid()
   getHybrid() {
     this.#check()
-    return { ...this.#hybrid }
+    return copyHybrid(this.#hybrid)
   }
   getHybridHistoryFrames() {
     this.#check()
     return this.#renderMode === 'hybrid' &&
-      this.#hybrid.temporalReconstruction &&
+      this.#hasHybridTemporalHistory() &&
       this.#hybrid.view === 'final' &&
       this.#rasterSettings.view === 'final'
       ? this.#aaView?.getHistoryFrames() || 0
@@ -80,21 +91,24 @@ class Renderer {
   }
   setHybrid(value) {
     this.#check()
-    this.#hybrid = copyHybrid({ ...this.#hybrid, ...value })
+    const next = copyHybrid({ ...this.#hybrid, ...value })
+    if (next.halfResolutionReflections && !canUseHalfReflections(this.#device.limits))
+      throw Error('Half-resolution Hybrid reflections require 21 sampled textures per shader stage')
+    this.#hybrid = next
     this.#resetAA()
-    if (this.#hybrid.probeGI) this.#continuePathTracing()
+    this.#continuePathTracing()
     this.#parameterPanel?.refresh()
   }
   getHybridCapabilities() {
     this.#check()
     const caps = hybridCapabilities(!!this.#model?.skinned)
+    caps.halfResolutionReflections = caps.supported && canUseHalfReflections(this.#device.limits)
     return canUseDeferred(this.#device.limits)
       ? caps
       : {
           ...caps,
           supported: false,
-          reason:
-            `Hybrid requires ${deferredLimits.maxColorAttachmentBytesPerSample} color bytes per sample and ${deferredLimits.maxSampledTexturesPerShaderStage} sampled textures per shader stage.`,
+          reason: `Hybrid requires ${deferredLimits.maxColorAttachmentBytesPerSample} color bytes per sample and ${deferredLimits.maxSampledTexturesPerShaderStage} sampled textures per shader stage.`,
         }
   }
   #rasterSettings = defaultRasterSettings()
@@ -177,11 +191,23 @@ class Renderer {
       this.#aaRemaining > 0
     )
   }
+  #hasHybridTemporalHistory() {
+    const h = this.#hybrid
+    return (
+      h.temporalReconstruction ||
+      (h.ambientOcclusion && h.halfResolutionAO) ||
+      (h.shadows && h.shadowTemporalReconstruction) ||
+      (h.reflections &&
+        h.halfResolutionReflections &&
+        h.reflectionDenoising &&
+        h.reflectionHitReprojection)
+    )
+  }
   #taaActive() {
     return (
       (this.#renderMode === 'raster' ||
         (this.#renderMode === 'hybrid' &&
-          this.#hybrid.temporalReconstruction &&
+          this.#hasHybridTemporalHistory() &&
           this.#hybrid.view === 'final')) &&
       !this.#aoSettings.enabled &&
       this.#rasterSettings.view === 'final' &&
@@ -225,8 +251,11 @@ class Renderer {
     this.#parameterPanel?.refresh()
   }
   #requiresDeferredMaterialPass() {
-    return this.#renderMode === 'raster' && this.#lighting === 'pbr' &&
+    return (
+      this.#renderMode === 'raster' &&
+      this.#lighting === 'pbr' &&
       !!this.#model?.useDeferredMaterialLayers
+    )
   }
   #useHalfShadows() {
     return (
@@ -254,6 +283,9 @@ class Renderer {
       const scene = {
           get hybrid() {
             return owner.#renderMode === 'hybrid' ? owner.#hybrid : null
+          },
+          get shadowLightCount() {
+            return owner.#lights?.length ?? 1
           },
           get halfShadows() {
             return owner.#useHalfShadows()
@@ -321,6 +353,8 @@ class Renderer {
               pass.draw(3)
             }
           },
+          writeReflectionReprojection: (uniforms) =>
+            this.#model?.writeReflectionReprojection(uniforms),
           finish: () => this.#model?.finishAA(),
         },
         owner = this
@@ -351,6 +385,7 @@ class Renderer {
   #clear = [0.025, 0.035, 0.055, 1]
   #parameterPanel
   #orbitControls
+  #viewOrbit
   #renderTail = Promise.resolve()
   #lighting = 'unlit'
   #lights = null
@@ -642,6 +677,11 @@ class Renderer {
         )
     }
     if (mode === 'ray-tracing') {
+      if (
+        this.#pathSettings.integrator !== 'path' &&
+        this.#lights?.some((light) => light.enabled && light.type === 'rectangle')
+      )
+        throw Error('Rectangle lights require Raster, Hybrid, or the Path Tracing integrator')
       if (!this.getCapabilities().pathTracing) throw Error(this.getCapabilities().reason)
       if (!this.#sceneModel && !this.#model?.triangles)
         throw Error('Path tracing requires a loaded model')
@@ -773,6 +813,12 @@ class Renderer {
   setPathTracing(settings) {
     this.#check()
     validatePathTracing(settings)
+    if (
+      this.#renderMode === 'ray-tracing' &&
+      (settings.integrator ?? 'path') !== 'path' &&
+      this.#lights?.some((light) => light.enabled && light.type === 'rectangle')
+    )
+      throw Error('Rectangle lights require the Path Tracing integrator')
     this.#pathSettings = {
       ...settings,
       denoise: settings.denoise ?? false,
@@ -897,6 +943,12 @@ class Renderer {
     const capabilities = this.getLightingCapabilities()
     if (!capabilities.maxLights) throw Error(capabilities.reason)
     const next = copySceneLights(lights)
+    if (
+      this.#renderMode === 'ray-tracing' &&
+      this.#pathSettings.integrator !== 'path' &&
+      next.some((light) => light.enabled && light.type === 'rectangle')
+    )
+      throw Error('Rectangle lights require Raster, Hybrid, or the Path Tracing integrator')
     this.#lights = next
     this.#resetAA()
     this.resetAccumulation()
@@ -922,6 +974,12 @@ class Renderer {
       directional: supported,
       point: supported,
       spot: supported,
+      rectangle:
+        supported &&
+        (this.#renderMode !== 'ray-tracing' || this.#pathSettings.integrator === 'path'),
+      rectangleShadows:
+        supported &&
+        (this.#renderMode !== 'ray-tracing' || this.#pathSettings.integrator === 'path'),
       maxLights: supported ? 16 : 0,
       directionalShadows: supported,
       pointShadows: supported,
@@ -970,13 +1028,16 @@ class Renderer {
       throw Error('Camera settings must be an object')
     const camera = copyViewCamera({ ...this.getViewCamera(), ...value })
     this.disableOrbitControls()
+    this.#applyViewCamera(camera)
+  }
+  #applyViewCamera(camera) {
     if (this.#viewCamera && JSON.stringify(this.#viewCamera) === JSON.stringify(camera)) return
     const old = this.getViewCamera(),
       distanceSquared = old.position.reduce((sum, v, i) => sum + (v - camera.position[i]) ** 2, 0),
       orientationDot = old.orientation.reduce((sum, v, i) => sum + v * camera.orientation[i], 0)
     const preserve =
       this.#renderMode === 'hybrid' &&
-      this.#hybrid.temporalReconstruction &&
+      this.#hasHybridTemporalHistory() &&
       [
         'projection',
         'verticalFov',
@@ -1023,6 +1084,7 @@ class Renderer {
     validateCamera(value)
     if (this.#viewCamera) this.#resetAA()
     this.#viewCamera = undefined
+    this.#viewOrbit = undefined
     if (
       Math.abs(value.yaw - this.#camera.yaw) > 20 ||
       Math.abs(value.pitch - this.#camera.pitch) > 20 ||
@@ -1109,21 +1171,57 @@ class Renderer {
   enableOrbitControls(options = {}) {
     this.#check()
     this.disableOrbitControls()
+    let orbit
+    const { viewDistance } = options
+    if (viewDistance !== undefined) {
+      const { c, forward } = cameraBasis(this.getViewCamera())
+      orbit = {
+        yaw: (Math.atan2(-forward[0], -forward[2]) * 180) / Math.PI,
+        pitch: Math.max(
+          -85,
+          Math.min(85, (Math.asin(Math.max(-1, Math.min(1, -forward[1]))) * 180) / Math.PI),
+        ),
+        distance: viewDistance,
+        exposure: c.exposure,
+        target: c.position.map((value, i) => value + forward[i] * viewDistance),
+      }
+      cameraFromOrbit(orbit)
+    }
     const controls = attachOrbitControls(this.#canvas, {
       ...options,
-      getCamera: () => this.getCamera(),
-      setCamera: (camera) => this.setCamera(camera),
+      getCamera: () => {
+        const current = this.#viewOrbit
+        return current ? { ...current, target: [...current.target] } : this.getCamera()
+      },
+      setCamera: (camera) => {
+        const current = this.#viewOrbit
+        if (!current) {
+          this.setCamera(camera)
+          return
+        }
+        if (
+          camera.yaw === current.yaw &&
+          camera.pitch === current.pitch &&
+          camera.distance === current.distance
+        )
+          return
+        const { position, orientation } = cameraFromOrbit(camera)
+        this.#applyViewCamera({ ...this.getViewCamera(), position, orientation })
+        this.#viewOrbit = camera
+      },
       drawFrame: () => this.drawFrame(),
     })
     this.#orbitControls = controls
+    this.#viewOrbit = orbit
     return () => {
       controls.dispose()
-      if (this.#orbitControls === controls) this.#orbitControls = undefined
+      if (this.#orbitControls === controls) this.disableOrbitControls()
     }
   }
   disableOrbitControls() {
     this.#orbitControls?.dispose()
     this.#orbitControls = undefined
+    this.#viewOrbit = undefined
   }
   async setShader({ source, vert, frag }) {
     this.#check()

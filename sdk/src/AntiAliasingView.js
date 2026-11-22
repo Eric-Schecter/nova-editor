@@ -59,8 +59,28 @@ const halton = (index, base) => {
   return v
 }
 const modelClearcoatTarget = 102
-const modelSpecularMapTarget = 103
-const modelFilmMapTarget = 104
+const hybridReflectionTarget = 103
+const reflectionHistoryA = 104
+const reflectionHistoryB = 105
+const reflectionPreviousGuide = 106
+const shadowHistoryA = 107,
+  shadowHistoryB = shadowHistoryA + 4,
+  shadowPreviousDepth = shadowHistoryB + 4,
+  shadowPreviousNormal = shadowPreviousDepth + 1,
+  shadowPreviousMotion = shadowPreviousNormal + 1
+const hybridAO = shadowPreviousMotion + 1,
+  aoHistoryA = hybridAO + 1,
+  aoHistoryB = aoHistoryA + 1,
+  aoPreviousGuide = aoHistoryB + 1,
+  aoCombinedPosition = aoPreviousGuide + 1
+const reflectionMomentsA = aoCombinedPosition + 1,
+  reflectionMomentsB = reflectionMomentsA + 1,
+  reflectionAtrous = reflectionMomentsB + 1
+const shadowMomentsA = reflectionAtrous + 1,
+  shadowMomentsB = shadowMomentsA + 4,
+  shadowAtrous = shadowMomentsB + 4
+const modelSpecularMapTarget = shadowAtrous + 1
+const modelFilmMapTarget = modelSpecularMapTarget + 1
 
 export async function createAntiAliasingView({
   canvas,
@@ -158,7 +178,7 @@ export async function createAntiAliasingView({
     point
   try {
     uniform = device.createBuffer({
-      size: 256 * 64,
+      size: 256 * 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
     layout = device.createBindGroupLayout({
@@ -210,7 +230,10 @@ export async function createAntiAliasingView({
       })
     }
     for (let i = 0; i < 22; i++) pipelines.push(await pipeline(i))
-    if (external) pipelines[29] = await pipeline(29)
+    if (external) {
+      pipelines[29] = await pipeline(29)
+      pipelines[30] = await pipeline(30)
+    }
     sceneMS = await pipeline(0, 4)
     if (shadowScene) shadowMS = await pipeline(10, 4)
     if (hdrScene) hdrMS = await pipeline(16, 4)
@@ -291,6 +314,17 @@ export async function createAntiAliasingView({
     const debug =
       (external?.raster?.view && external.raster.view !== 'final') ||
       (external?.hybrid && external.hybrid.view !== 'final')
+    const halfReflections =
+      external?.hybrid?.reflections && external.hybrid.halfResolutionReflections
+    const halfAO =
+      !!external?.hybrid?.ambientOcclusion && external.hybrid.halfResolutionAO && !debug
+    const denoiseReflections = halfReflections && external.hybrid.reflectionDenoising
+    const shadowGroups = Math.ceil((external?.shadowLightCount ?? 0) / 4)
+    const temporalShadows =
+      shadowGroups > 0 &&
+      !!external?.hybrid?.shadows &&
+      external.hybrid.shadowTemporalReconstruction &&
+      !debug
     const reconstruct = !!external?.hybrid?.temporalReconstruction && !debug
     const effectiveMethod = debug ? 'off' :
       external?.raster?.pipeline === 'deferred' && settings.method === 'msaa' ? 'fxaa' : settings.method
@@ -399,20 +433,186 @@ export async function createAntiAliasingView({
       const oit = external.alphaBlend && !debug,
         sceneColor = oit ? 91 : 17
       if (external.raster?.pipeline === 'deferred') {
+        if (denoiseReflections || temporalShadows || halfAO) add(-2, 18)
         add(-4, 85)
         if (external.hybrid || external.halfShadows) {
           const shadow = add(-7, 92)
           shadow.sources.splice(0, 4, 85, 86, 87, 88)
           shadow.sources[8] = modelClearcoatTarget
-          shadow.sources[9] = modelSpecularMapTarget
-          shadow.sources[10] = modelFilmMapTarget
+          shadow.sources[10] = modelSpecularMapTarget
+          shadow.sources[11] = modelFilmMapTarget
+        }
+        if (halfReflections) {
+          const reflection = add(-8, hybridReflectionTarget)
+          reflection.sources.splice(0, 4, 85, 86, 87, 88)
+          reflection.sources[8] = modelClearcoatTarget
+          reflection.sources[10] = modelSpecularMapTarget
+          reflection.sources[11] = modelFilmMapTarget
+          reflection.u[4] *= 0.5
+          reflection.u[5] *= 0.5
+        }
+        let resolvedReflection = hybridReflectionTarget
+        if (denoiseReflections) {
+          resolvedReflection = frames % 2 ? reflectionHistoryB : reflectionHistoryA
+          const previous = frames % 2 ? reflectionHistoryA : reflectionHistoryB
+          const resolve = add(30, resolvedReflection)
+          resolve.sources.splice(
+            0,
+            7,
+            hybridReflectionTarget,
+            86,
+            85,
+            previous,
+            18,
+            reflectionPreviousGuide,
+            87,
+          )
+          resolve.hitReprojection = external.hybrid.reflectionHitReprojection
+          resolve.u[10] = resolve.hitReprojection ? 1 : 0
+          resolve.u[11] = 0
+          resolve.u[19] = 0
+          if (external.hybrid.clearcoatReflections) {
+            resolve.sources[7] = modelClearcoatTarget
+            resolve.u[8] = 1
+          }
+          if (external.hybrid.reflectionSVGF) {
+            const moments = frames % 2 ? reflectionMomentsB : reflectionMomentsA
+            const update = add(30, moments)
+            update.sources = [...resolve.sources]
+            update.sources[3] = frames % 2 ? reflectionMomentsA : reflectionMomentsB
+            update.u = [...resolve.u]
+            update.u[19] = 1
+            update.hitReprojection = resolve.hitReprojection
+            let source = resolvedReflection
+            for (const step of [1, 2, 4]) {
+              const target = step === 2 ? reflectionAtrous : hybridReflectionTarget
+              const filter = add(30, target)
+              filter.sources = [...resolve.sources]
+              filter.sources[0] = source
+              filter.sources[3] = moments
+              filter.u[8] = resolve.u[8]
+              filter.u[11] = 0
+              filter.u[19] = step + 1
+              source = target
+            }
+          } else {
+            const spatial = add(30, hybridReflectionTarget)
+            spatial.sources[0] = resolvedReflection
+            spatial.sources[1] = 86
+            spatial.sources[2] = 85
+            spatial.sources[4] = 18
+            spatial.sources[6] = 87
+            spatial.u[9] = 1
+            spatial.u[11] = 0
+            spatial.u[19] = 0
+            spatial.sources[7] = resolve.sources[7]
+            spatial.u[8] = resolve.u[8]
+          }
+          resolvedReflection = hybridReflectionTarget
+          const guide = add(30, reflectionPreviousGuide)
+          guide.sources[1] = 86
+          guide.sources[4] = 18
+          guide.sources[6] = 87
+          guide.u[27] = 1
+          guide.u[11] = 0
+          guide.u[19] = 0
+          if (external.hybrid.clearcoatReflections) {
+            guide.sources[7] = modelClearcoatTarget
+            guide.u[8] = 1
+          }
+        }
+        let resolvedShadows = 92
+        if (temporalShadows) {
+          const previousShadows = frames % 2 ? shadowHistoryA : shadowHistoryB
+          resolvedShadows = frames % 2 ? shadowHistoryB : shadowHistoryA
+          for (let i = 0; i < shadowGroups; i++) {
+            const resolve = add(7, resolvedShadows + i)
+            resolve.sources.splice(
+              0,
+              8,
+              92 + i,
+              86,
+              shadowPreviousNormal,
+              previousShadows + i,
+              18,
+              shadowPreviousMotion,
+              DUMMY,
+              shadowPreviousDepth,
+            )
+            resolve.u[8] = effectiveMethod === 'ssaa' ? 2 : 1
+            resolve.u[27] = 3
+            resolve.u[19] = 0
+            if (external.hybrid.shadowSVGF) {
+              const moments = (frames % 2 ? shadowMomentsB : shadowMomentsA) + i
+              const update = add(7, moments)
+              update.sources = [...resolve.sources]
+              update.sources[3] = (frames % 2 ? shadowMomentsA : shadowMomentsB) + i
+              update.u = [...resolve.u]
+              update.u[19] = 1
+              let source = resolvedShadows + i
+              for (const step of [1, 2, 4]) {
+                const target = step === 2 ? shadowAtrous : 92 + i
+                const filter = add(7, target)
+                filter.sources.splice(0, 7, source, 86, resolvedShadows + i, moments, 18, DUMMY, 87)
+                filter.u[8] = resolve.u[8]
+                filter.u[27] = 3
+                filter.u[19] = step + 1
+                source = target
+              }
+            }
+          }
+          if (external.hybrid.shadowSVGF) resolvedShadows = 92
+          for (const [target, source] of [
+            [shadowPreviousDepth, 87],
+            [shadowPreviousNormal, 86],
+            [shadowPreviousMotion, 18],
+          ]) {
+            const guide = add(1, target)
+            guide.sources[0] = source
+            guide.u[26] = 1
+          }
+        }
+        if (halfAO) {
+          const trace = add(-9, hybridAO)
+          trace.sources.splice(0, 4, 85, 86, 87, 88)
+          trace.sources[8] = modelClearcoatTarget
+          trace.sources[10] = modelSpecularMapTarget
+          trace.sources[11] = modelFilmMapTarget
+          const currentAO = frames % 2 ? aoHistoryB : aoHistoryA
+          const resolve = add(30, currentAO)
+          resolve.sources.splice(
+            0,
+            7,
+            hybridAO,
+            86,
+            DUMMY,
+            frames % 2 ? aoHistoryA : aoHistoryB,
+            18,
+            aoPreviousGuide,
+            87,
+          )
+          resolve.u[11] = 1
+          const guide = add(30, aoPreviousGuide)
+          guide.sources[1] = 86
+          guide.sources[4] = 18
+          guide.sources[6] = 87
+          guide.u[11] = 2
+          const composite = add(30, aoCombinedPosition)
+          composite.sources[0] = currentAO
+          composite.sources[1] = 86
+          composite.sources[2] = 85
+          composite.sources[6] = 87
+          composite.u[11] = 3
         }
         const p = add(-5, sceneColor)
-        if (external.hybrid || external.halfShadows) p.sources.splice(4, 4, 92, 93, 94, 95)
-        p.sources.splice(0, 4, 85, 86, 87, 88)
+        if (halfReflections) p.sources[9] = resolvedReflection
+        if (external.hybrid || external.halfShadows)
+          for (let i = 0; i < 4; i++)
+            p.sources[4 + i] = (i < shadowGroups ? resolvedShadows : 92) + i
+        p.sources.splice(0, 4, 85, 86, halfAO ? aoCombinedPosition : 87, 88)
         p.sources[8] = modelClearcoatTarget
-        p.sources[9] = modelSpecularMapTarget
-        p.sources[10] = modelFilmMapTarget
+        p.sources[10] = modelSpecularMapTarget
+        p.sources[11] = modelFilmMapTarget
       } else add(-1, sceneColor).ms = effectiveMethod === 'msaa'
       if (oit) {
         add(-6, 89).sources[0] = 91
@@ -460,7 +660,7 @@ export async function createAntiAliasingView({
       add(1, PM).sources[0] = M
     }
     if (reconstruct) {
-      add(-2, 18)
+      if (!denoiseReflections && !temporalShadows && !halfAO) add(-2, 18)
       const scale = effectiveMethod === 'ssaa' ? 2 : 1
       crop(M, 18, width * scale, height * scale, false)
       crop(98, 86, width * scale, height * scale, false)
@@ -576,7 +776,7 @@ export async function createAntiAliasingView({
           i === 22 ? shadowSettings.resolution : i === DUMMY ? 1 : h * (big ? 2 : 1) + (raw ? 2 : 0)
       if (i >= 23) [tw, th] = postResourceSize(i, w, h)
       if ((i >= 42 && i < 64) || i >= 65) [tw, th] = reflectionResourceSize(i, w, h, superSample)
-      if ((i >= 85 && i < 96) || i === modelClearcoatTarget || i === modelSpecularMapTarget || i === modelFilmMapTarget) {
+      if ((i >= 85 && i < 96) || i === modelClearcoatTarget) {
         const scale = superSample ? 2 : 1
         tw = w * scale + 2
         th = h * scale + 2
@@ -585,9 +785,25 @@ export async function createAntiAliasingView({
         tw = Math.ceil((tw - 2) / 2) + 2
         th = Math.ceil((th - 2) / 2) + 2
       }
-      if (i >= 96 && i !== modelClearcoatTarget && i !== modelSpecularMapTarget && i !== modelFilmMapTarget) {
+      if (i >= 96 && i !== modelClearcoatTarget) {
         tw = w
         th = h
+      }
+      if (
+        (i >= hybridAO && i < aoCombinedPosition) ||
+        (i >= reflectionMomentsA && i <= reflectionAtrous)
+      ) {
+        const scale = superSample ? 2 : 1
+        tw = Math.ceil((w * scale) / 2) + 2
+        th = Math.ceil((h * scale) / 2) + 2
+      } else if (i >= shadowHistoryA) {
+        const scale = superSample ? 2 : 1
+        tw = w * scale + 2
+        th = h * scale + 2
+      } else if (i >= hybridReflectionTarget) {
+        const scale = superSample ? 2 : 1
+        tw = Math.ceil((w * scale) / 2) + 2
+        th = Math.ceil((h * scale) / 2) + 2
       }
       if (textures[i] && (textures[i].width !== tw || textures[i].height !== th)) {
         textures[i].destroy()
@@ -650,9 +866,13 @@ export async function createAntiAliasingView({
         p.end()
       }
     function render(p, index, present = false) {
+      if (p.hitReprojection) external.writeReflectionReprojection(p.u)
       device.queue.writeBuffer(uniform, index * 256, new Float32Array(p.u))
       const scene =
-          (p.program <= 0 && !(p.program === -7 && external?.halfShadows)) ||
+          (p.program <= 0 &&
+            p.program !== -8 &&
+            p.program !== -9 &&
+            !(p.program === -7 && external?.halfShadows)) ||
           p.program === 9 ||
           p.program === 10 ||
           p.program === 16 ||
@@ -732,8 +952,12 @@ export async function createAntiAliasingView({
             p.program === -2,
             p.ms ? 4 : 1,
             p.program,
-            p.program === -5 || p.program === -6 || p.program === -7
-              ? p.sources.slice(0, 11).map((i) => textures[i])
+            p.program === -5 ||
+              p.program === -6 ||
+              p.program === -7 ||
+              p.program === -8 ||
+              p.program === -9
+              ? p.sources.slice(0, 12).map((i) => textures[i])
               : null,
           )
         pass.end()
@@ -935,8 +1159,7 @@ export async function createAntiAliasingView({
       if (Math.abs(value - time) > 0.25) reset()
       time = value
     },
-    getHistoryFrames: () =>
-      settings.method === 'taa' || external?.hybrid?.temporalReconstruction ? frames : 0,
+    getHistoryFrames: () => frames,
     resetHistory() {
       check()
       reset()

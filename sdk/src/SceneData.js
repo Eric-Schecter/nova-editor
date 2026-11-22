@@ -129,6 +129,7 @@ export class SceneData {
         },
     )
     const paths = new Map()
+    const strategies = new Map()
     const variants = new Map()
     for (const a of assets) {
       if (
@@ -139,11 +140,12 @@ export class SceneData {
         typeof a.url !== 'string' ||
         !a.url ||
         (a.sourceSpace !== undefined && typeof a.sourceSpace !== 'boolean') ||
-        (a.materialVariant !== undefined &&
-          (!Number.isInteger(a.materialVariant) || a.materialVariant < 0 || a.materialVariant > 0xffffffff))
+        (a.materialVariant !== undefined && (!Number.isInteger(a.materialVariant) || a.materialVariant < 0)) ||
+        (a.bvh !== undefined && a.bvh !== 'sah' && a.bvh !== 'median')
       )
-        throw Error('Invalid scene asset ID, URL, sourceSpace or materialVariant')
+        throw Error('Invalid scene asset ID, URL, sourceSpace or BVH strategy')
       paths.set(a.id, a.url)
+      strategies.set(a.id, a.bvh ?? 'median')
       variants.set(a.id, a.materialVariant)
     }
     const ids = new Set(),
@@ -166,95 +168,81 @@ export class SceneData {
       ids.add(i.id)
       referenced.add(i.assetId)
     }
-    const key = JSON.stringify([...referenced].sort().map((id) => [id, paths.get(id), variants.get(id)]))
+    const key = JSON.stringify(
+      [...referenced].sort().map((id) => [id, paths.get(id), strategies.get(id), variants.get(id)]),
+    )
     if (!this.model || key !== this.key) {
       const next = new Map()
-      const fresh = []
-      try {
-        for (const id of [...referenced].sort()) {
-          const previous = this.meshes.get(id)
-          const materialVariant = variants.get(id)
-          const data =
-            previous?.url === paths.get(id) && previous.materialVariant === materialVariant
-              ? previous.data
-              : await loadGLB(paths.get(id), { materialVariant })
-          if (data !== previous?.data) {
-            fresh.push(data)
-            for (const image of data.images)
-              if (image.bitmap) {
-                const canvas = new OffscreenCanvas(image.width, image.height)
-                const context = canvas.getContext('2d')
-                context.drawImage(image.bitmap, 0, 0)
-                image.pixels = new Uint8Array(
-                  context.getImageData(0, 0, image.width, image.height).data,
-                )
-                image.bitmap.close()
-                delete image.bitmap
-              }
-          }
-          if (data.animation && !data.skinInputs) createAnimationPlayer(data)
-          next.set(id, {
-            data,
-            url: paths.get(id),
-            materialVariant,
-            picking: previous?.data === data ? previous.picking : new PickMesh(data),
-          })
-        }
-        const packed = emptyModelData()
-        packed.materials = []
-        packed.hasTransmission = [...next.values()].some((m) => m.data.hasTransmission)
-        let vertexCount = 0
-        for (const m of next.values()) vertexCount += m.data.vertices.length
-        packed.vertices = new Float32Array(vertexCount)
-        if ([...next.values()].some((m) => m.data.animation)) {
-          let bytes = (vertexCount / modelVertexFloats) * 64
-          for (const {data} of next.values())
-            if (data.skinInputs) bytes += data.skinInputs.length - data.vertices.length / modelVertexFloats * 64
-          if (bytes / 64 > 2 ** 24) throw Error("Scene morph data exceeds the storage index range")
-          packed.skinInputs = new Uint8Array(bytes)
-        }
-        let offset = 0, deltaOffset = vertexCount / modelVertexFloats * 64
-        for (const m of next.values()) {
-          m.first = offset / modelVertexFloats
-          m.count = m.data.vertices.length / modelVertexFloats
-          packed.vertices.set(m.data.vertices, offset)
-          if (m.data.skinInputs) {
-            const start = offset / modelVertexFloats * 64, size = m.data.vertices.length / modelVertexFloats * 64
-            packed.skinInputs.set(m.data.skinInputs.subarray(0, size), start)
-            packed.skinInputs.set(m.data.skinInputs.subarray(size), deltaOffset)
-            const inputs = new Float32Array(packed.skinInputs.buffer, start, size / 4)
-            for (let i = 7; i < inputs.length; i += 16)
-              if (inputs[i] > 0) inputs[i] += (deltaOffset - size) / 64
-            deltaOffset += m.data.skinInputs.length - size
-          }
-          for (let i = offset + 3; i < offset + m.data.vertices.length; i += modelVertexFloats)
-            packed.vertices[i] += packed.materials.length
-          packed.materials.push(...m.data.materials)
-          offset += m.data.vertices.length
-        }
-        packMaterials(packed)
-        let shadowCount = 0
-        for (const m of next.values()) {
-          m.shadowFirst = shadowCount / 48
-          m.shadowData = m.picking.shadowRecords()
-          m.shadowNodes = m.picking.nodes.length
-          shadowCount += m.shadowData.length
-          if (shadowCount * 4 > shadowBVHByteLimit) throw Error('Scene shadow BVHs exceed 384 MiB')
-        }
-        this.shadowRecords = new Float32Array(shadowCount)
-        for (const m of next.values()) {
-          this.shadowRecords.set(m.shadowData, m.shadowFirst * 48)
-          const offset = packed.vertices[m.first * modelVertexFloats + 3] - m.data.vertices[3]
-          for (let row = m.shadowNodes; row < m.shadowData.length / 48; row++)
-            this.shadowRecords[(m.shadowFirst + row) * 48 + 43] += offset
-        }
-        this.model = packed
-        this.meshes = next
-        this.key = key
-      } catch (e) {
-        fresh.forEach((data) => data.images.forEach((i) => i.bitmap?.close()))
-        throw e
+      for (const id of [...referenced].sort()) {
+        const previous = this.meshes.get(id)
+        const data =
+          previous?.url === paths.get(id) && previous.materialVariant === variants.get(id)
+            ? previous.data
+            : await loadGLB(paths.get(id), { pack: false, materialVariant: variants.get(id) })
+        if (data.animation && !data.skinInputs) createAnimationPlayer(data)
+        const strategy = strategies.get(id)
+        next.set(id, {
+          data,
+          strategy,
+          url: paths.get(id),
+          materialVariant: variants.get(id),
+          picking:
+            previous?.data === data && previous.strategy === strategy
+              ? previous.picking
+              : new PickMesh(data, strategy),
+        })
       }
+      const packed = emptyModelData()
+      packed.materials = []
+      packed.hasTransmission = [...next.values()].some((m) => m.data.hasTransmission)
+      let vertexCount = 0
+      for (const m of next.values()) vertexCount += m.data.vertices.length
+      packed.vertices = new Float32Array(vertexCount)
+      if ([...next.values()].some((m) => m.data.animation)) {
+        let bytes = (vertexCount / modelVertexFloats) * 64
+        for (const {data} of next.values())
+          if (data.skinInputs) bytes += data.skinInputs.length - data.vertices.length / modelVertexFloats * 64
+        if (bytes / 64 > 2 ** 24) throw Error("Scene morph data exceeds the storage index range")
+        packed.skinInputs = new Uint8Array(bytes)
+      }
+      let offset = 0, deltaOffset = vertexCount / modelVertexFloats * 64
+      for (const m of next.values()) {
+        m.first = offset / modelVertexFloats
+        m.count = m.data.vertices.length / modelVertexFloats
+        packed.vertices.set(m.data.vertices, offset)
+        if (m.data.skinInputs) {
+          const start = offset / modelVertexFloats * 64, size = m.data.vertices.length / modelVertexFloats * 64
+          packed.skinInputs.set(m.data.skinInputs.subarray(0, size), start)
+          packed.skinInputs.set(m.data.skinInputs.subarray(size), deltaOffset)
+          const inputs = new Float32Array(packed.skinInputs.buffer, start, size / 4)
+          for (let i = 7; i < inputs.length; i += 16)
+            if (inputs[i] > 0) inputs[i] += (deltaOffset - size) / 64
+          deltaOffset += m.data.skinInputs.length - size
+        }
+        for (let i = offset + 3; i < offset + m.data.vertices.length; i += modelVertexFloats)
+          packed.vertices[i] += packed.materials.length
+        packed.materials.push(...m.data.materials)
+        offset += m.data.vertices.length
+      }
+      packMaterials(packed)
+      let shadowCount = 0
+      for (const m of next.values()) {
+        m.shadowFirst = shadowCount / 48
+        m.shadowData = m.picking.shadowRecords()
+        m.shadowNodes = m.picking.nodes.length
+        shadowCount += m.shadowData.length
+        if (shadowCount * 4 > shadowBVHByteLimit) throw Error('Scene shadow BVHs exceed 384 MiB')
+      }
+      this.shadowRecords = new Float32Array(shadowCount)
+      for (const m of next.values()) {
+        this.shadowRecords.set(m.shadowData, m.shadowFirst * 48)
+        const offset = packed.vertices[m.first * modelVertexFloats + 3] - m.data.vertices[3]
+        for (let row = m.shadowNodes; row < m.shadowData.length / 48; row++)
+          this.shadowRecords[(m.shadowFirst + row) * 48 + 43] += offset
+      }
+      this.model = packed
+      this.meshes = next
+      this.key = key
     }
     const spaces = new Map(assets.map((a) => [a.id, !!a.sourceSpace]))
     const effective = input.map((i) => {
@@ -307,19 +295,53 @@ export class SceneData {
       const first = index
       for (const i of effective)
         if (i.assetId === id) {
+          const normal = instanceNormal(i.world)
+          const invertible = normal.some((v) => v !== 0)
+          const material = m.data.materials[0]
           const values = [
             ...i.world,
-            ...instanceNormal(i.world),
-            ...m.data.baseColor,
-            ...m.data.material,
-            ...m.data.emissive,
+            ...normal,
+            ...material.baseColor,
+            material.metallic,
+            material.roughness,
+            material.normalScale,
+            material.occlusionStrength,
+            ...material.emissive,
+            0,
             input.length,
             m.shadowFirst,
-            i.castShadow === false || instanceNormal(i.world).every((v) => v === 0) ? 0 : 1,
+            i.castShadow === false || !invertible ? 0 : 1,
             m.shadowNodes,
           ]
           if (m.data.animation) {
             values[28] = players.get(i.id).paletteOffset + 1
+          }
+          if (invertible && !m.data.animation && m.shadowNodes) {
+            const { minimum: low, maximum: high } = m.picking.nodes[0]
+            const center = low.map((x, k) => (x + high[k]) * 0.5)
+            const extent = low.map(
+              (x, k) => (high[k] - x) * 0.5 + 1e-5 * Math.max(1, Math.abs(x), Math.abs(high[k])),
+            )
+            const bounds = []
+            for (let k = 0; k < 3; k++) {
+              const position =
+                i.world[k] * center[0] +
+                i.world[k + 4] * center[1] +
+                i.world[k + 8] * center[2] +
+                i.world[k + 12]
+              const radius =
+                Math.abs(i.world[k]) * extent[0] +
+                Math.abs(i.world[k + 4]) * extent[1] +
+                Math.abs(i.world[k + 8]) * extent[2]
+              bounds.push(position - radius, position + radius)
+            }
+            if (bounds.every((v) => Number.isFinite(Math.fround(v)))) {
+              values[35] = -1
+              for (let k = 0; k < 3; k++) {
+                values[32 + k] = bounds[k * 2]
+                values[36 + k] = bounds[k * 2 + 1]
+              }
+            }
           }
           if (!values.every((v) => Number.isFinite(v) && Number.isFinite(Math.fround(v))))
             throw Error('Instance transform overflows float32')
@@ -521,7 +543,6 @@ export class SceneData {
       throw Error('Unknown scene material slot')
     const data = { ...m.data, materials: [...m.data.materials] }
     data.materials[slot] = validateMaterial(material)
-    packMaterials(data)
     this.meshes = new Map(this.meshes)
     this.meshes.set(id, { ...m, data })
     this.model = null
@@ -538,7 +559,6 @@ export class SceneData {
     this.rayKey = ''
     this.shadowRecords = new Float32Array(0)
     this.pickInstances = []
-    for (const m of this.meshes.values()) m.data.images.forEach((i) => i.bitmap?.close())
     this.meshes = new Map()
     this.sourceSpaces = new Map()
     this.key = ''
