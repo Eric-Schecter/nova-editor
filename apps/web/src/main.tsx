@@ -32,6 +32,7 @@ import {
   writeNodeTransform,
   type TransformSpace,
 } from "../../../packages/editor-core/src/selection-transform";
+import { readGLB } from "../../../packages/asset-system/index";
 import { decodeModel, expandModel } from "../../../packages/asset-system/model";
 import { AssetProperties } from "./AssetProperties";
 import {
@@ -54,7 +55,7 @@ import {
   surfaceQuery,
 } from "../../../packages/editor-core/src/placement";
 import type { ResourceDrag } from "./PlacementPreview";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SceneTree, type TreeCommand } from "./SceneTree";
 import {
@@ -111,7 +112,7 @@ type Renderer = {
     excludeIds?: string[];
   }) => { id: string; position: number[] } | null;
   setScene: (
-    assets: { id: string; url: string; sourceSpace?: boolean }[],
+    assets: { id: string; url: string; sourceSpace?: boolean; materialVariant?: number }[],
     instances: {
       id: string;
       assetId: string;
@@ -329,6 +330,18 @@ function App() {
     node = scene.nodes.find((n) => n.id === selection),
     dirty = JSON.stringify(scene) !== saved.current,
     modelDescendants = node ? subtreeIds(scene, [node.id]) : new Set<string>();
+  const inspectedAsset = node?.assetId ? scene.assets[node.assetId] : undefined;
+  const inspectedBytes = inspectedAsset ? assets.current[inspectedAsset.path] : undefined;
+  const materialVariants = useMemo(() => {
+    if (!inspectedBytes) return [];
+    try {
+      const variants = readGLB(inspectedBytes).json.extensions?.KHR_materials_variants?.variants;
+      return Array.isArray(variants)
+        ? variants.map((v: { name?: string }, i: number) => v.name || "材质变体 " + (i + 1)) : [];
+    } catch {
+      return [];
+    }
+  }, [inspectedBytes]);
   let previewCamera: Camera | null = null;
   if (mainPreview)
     try {
@@ -601,7 +614,8 @@ function App() {
               assetURLs.current.set(a.path, cached);
               urls.current.push(cached.url);
             }
-            return { id, url: cached!.url, sourceSpace: !!a.sourceSpace };
+            return { id, url: cached!.url, sourceSpace: !!a.sourceSpace,
+              ...(a.materialVariant === undefined ? {} : { materialVariant: a.materialVariant }) };
           });
           const activePaths = new Set(
             Object.values(snapshot.assets).map((a) => a.path),
@@ -820,7 +834,8 @@ function App() {
         throw Error("请选择小于 128 MiB 的 GLB");
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (documentIO.current) return;
-      const model = decodeModel(bytes),
+      const variantAsset = !!readGLB(bytes).json.extensions?.KHR_materials_variants;
+      const model = variantAsset ? null : decodeModel(bytes),
         id = crypto.randomUUID();
       let files: Record<string, Uint8Array> = {};
       edit((s) => {
@@ -830,7 +845,13 @@ function App() {
           name: file.name.replace(/\.glb$/i, ""),
           transform: identity(),
         });
-        files = expandModel(s, id, model, () => crypto.randomUUID());
+        if (model) files = expandModel(s, id, model, () => crypto.randomUUID());
+        else {
+          const path = `assets/${id}.glb`;
+          files[path] = bytes;
+          s.assets[id] = { path, sourceSpace: true, name: file.name };
+          s.nodes[s.nodes.length - 1].assetId = id;
+        }
       });
       Object.assign(assets.current, files);
       pendingFocus.current = id;
@@ -2091,6 +2112,24 @@ function App() {
                         }
                       />
                     </label>
+                    {node.assetId && materialVariants.length > 0 && (
+                      <label>
+                        材质变体
+                        <select value={inspectedAsset?.materialVariant ?? -1} onChange={(e) => {
+                          const index = Number(e.currentTarget.value), assetId = node.assetId!;
+                          edit((draft) => {
+                            assertEditable(draft, [node.id]);
+                            if (index < 0) delete draft.assets[assetId].materialVariant;
+                            else draft.assets[assetId].materialVariant = index;
+                          });
+                        }}>
+                          <option value={-1}>默认材质</option>
+                          {materialVariants.map((name: string, index: number) => (
+                            <option key={index} value={index}>{name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <h3>
                       变换
                       <span>

@@ -43,6 +43,8 @@ static std::string uuid()
 }
 struct Editor
 {
+    std::filesystem::path variantListPath;
+    std::vector<std::string> variantNames;
     editor::History        history;
     editor::ViewportTools  tools;
     editor::AssetBounds    assetBounds;
@@ -873,13 +875,25 @@ struct Editor
             throw std::runtime_error("Choose a .glb file");
         if (assetRoot.empty())
             assetRoot = projectRoot();
-        auto model = editor::assets::decodeModel(editor::assets::readBytes(src));
+        const auto bytes = editor::assets::readBytes(src);
+        const auto doc = editor::assets::readGLB(bytes);
+        const bool variantAsset = doc.json.value("extensions", editor::Json::object()).contains("KHR_materials_variants");
         auto id    = uuid();
         auto draft = history.scene;
         draft["nodes"].push_back(
           {{"id", id}, {"parentId", nullptr}, {"name", src.stem().string()}, {"transform", editor::identity()}});
-        auto files = editor::assets::expandModel(draft, id, model, uuid);
-        writeModelFiles(files);
+        if (variantAsset)
+        {
+            const auto path = "assets/" + id + ".glb";
+            draft["assets"][id] = {{"path", path}, {"sourceSpace", true}, {"name", src.filename().string()}};
+            draft["nodes"].back()["assetId"] = id;
+            writeModelFiles({{path, bytes}});
+        }
+        else
+        {
+            const auto model = editor::assets::decodeModel(bytes);
+            writeModelFiles(editor::assets::expandModel(draft, id, model, uuid));
+        }
         change([&](auto& s) { s = draft; });
         select(id);
         pendingFocus = id;
@@ -1593,6 +1607,51 @@ struct Editor
                     if (n.contains("assetId"))
                     {
                         auto id = n["assetId"].get<std::string>();
+                        auto& asset = history.scene["assets"].at(id);
+                        const auto root = assetRoot.empty() ? projectRoot() : assetRoot;
+                        const auto path = resolveAsset(root, asset.at("path").get<std::string>());
+                        if (path != variantListPath)
+                        {
+                            variantListPath = path;
+                            variantNames.clear();
+                            try
+                            {
+                                const auto doc = selectedAsset(selected);
+                                const auto root = doc.json.value("extensions", editor::Json::object());
+                                if (root.contains("KHR_materials_variants"))
+                                    for (const auto& variant : root["KHR_materials_variants"].value("variants", editor::Json::array()))
+                                        variantNames.push_back(variant.value("name", std::string("Variant")));
+                            }
+                            catch (const std::exception&) {}
+                        }
+                        if (!variantNames.empty())
+                        {
+                            const auto current = asset.value("materialVariant", int64_t(-1));
+                            const char* label = current >= 0 && size_t(current) < variantNames.size()
+                              ? variantNames[size_t(current)].c_str() : "Default material";
+                            if (ImGui::BeginCombo("Material variant", label))
+                            {
+                                auto pick = [&](int index) {
+                                    action([this, id, nodeId = selected, index] {
+                                        change([&](auto& draft) {
+                                            editor::assertEditable(draft, {nodeId});
+                                            if (index < 0)
+                                                draft["assets"][id].erase("materialVariant");
+                                            else
+                                                draft["assets"][id]["materialVariant"] = index;
+                                        });
+                                    });
+                                };
+                                if (ImGui::Selectable("Default material", current < 0)) pick(-1);
+                                for (size_t i = 0; i < variantNames.size(); ++i)
+                                {
+                                    ImGui::PushID(int(i));
+                                    if (ImGui::Selectable(variantNames[i].c_str(), current == int(i))) pick(int(i));
+                                    ImGui::PopID();
+                                }
+                                ImGui::EndCombo();
+                            }
+                        }
                         auto b  = assetBounds.find(id);
                         if (b != assetBounds.end())
                         {
@@ -1865,7 +1924,9 @@ struct Editor
             assets.push_back(
               {it.key(),
                resolveAsset(root, it.value()["path"].get<std::string>()),
-               it.value().value("sourceSpace", false)});
+               it.value().value("sourceSpace", false),
+               it.value().contains("materialVariant")
+                 ? std::optional<uint32_t>(it.value()["materialVariant"].get<uint32_t>()) : std::nullopt});
         std::vector<render::SceneInstance> instances;
         for (const auto& n : history.scene["nodes"])
             if (n.contains("assetId") && !editor::inheritedFlag(history.scene, n["id"].get<std::string>(), "hidden"))
