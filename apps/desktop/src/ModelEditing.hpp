@@ -101,7 +101,7 @@ namespace editor::assets
         if (!j.value("animations", Json::array()).empty() || !j.value("skins", Json::array()).empty())
             throw std::runtime_error("Cannot expand animated or skinned models");
         for (const auto& x : j.value("extensionsRequired", Json::array()))
-            if (x != "KHR_materials_ior" && x != "KHR_materials_transmission" && x != "KHR_materials_volume" && x != "KHR_materials_clearcoat" && x != "KHR_materials_unlit" && x != "KHR_texture_transform")
+            if (x != "KHR_materials_ior" && x != "KHR_materials_transmission" && x != "KHR_materials_volume" && x != "KHR_materials_clearcoat" && x != "KHR_materials_unlit" && x != "KHR_materials_pbrSpecularGlossiness" && x != "KHR_texture_transform")
                 throw std::runtime_error("Unsupported required model extension");
         for (const auto& b : j.value("buffers", Json::array()))
             if (b.contains("uri"))
