@@ -1,6 +1,6 @@
 # GitHub Release 配对依赖
 
-默认来源为 `Eric-Schecter/nova-render` 的正式 GitHub Release。原生库/头文件、Web 模块和 shader 必须使用同一版本、同一干净源码提交，不能单独更新其中一端。当前兼容范围为稳定的 **0.8.x、0.9.x 和 0.10.x**。当前锁定 0.10.14，原生窗口由 C++ SDK 内的 SDL3 管理。
+默认来源为 `Eric-Schecter/nova-render` 的正式 GitHub Release。原生库/头文件、Web 模块和 shader 必须使用同一版本、同一干净源码提交，不能单独更新其中一端。当前兼容范围为稳定的 **0.8.x、0.9.x 和 0.10.x**。当前锁定 0.10.15，原生窗口由 C++ SDK 内的 SDL3 管理。
 
 ## 安装与锁定
 
