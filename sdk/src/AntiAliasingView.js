@@ -81,6 +81,11 @@ const shadowMomentsA = reflectionAtrous + 1,
   shadowAtrous = shadowMomentsB + 4
 const modelSpecularMapTarget = shadowAtrous + 1
 const modelFilmMapTarget = modelSpecularMapTarget + 1
+const hoverOutlineMask = modelFilmMapTarget + 1
+const selectedOutlineMask = hoverOutlineMask + 1
+const compactShadow = selectedOutlineMask + 1
+const halfShadowRaw = compactShadow + 4
+const lastTexture = halfShadowRaw + 3
 
 export async function createAntiAliasingView({
   canvas,
@@ -156,7 +161,7 @@ export async function createAntiAliasingView({
   const check = () => {
     if (disposed || lost) throw Error(lost || 'AA view disposed')
   }
-  const texture = (w, h, format = 'rgba16float', sampleCount = 1) =>
+  const texture = (w, h, format = 'rgba16float', sampleCount = 1, storage = false) =>
     device.createTexture({
       size: [w, h],
       format,
@@ -164,18 +169,67 @@ export async function createAntiAliasingView({
       usage:
         GPUTextureUsage.RENDER_ATTACHMENT |
         GPUTextureUsage.TEXTURE_BINDING |
+        (storage ? GPUTextureUsage.STORAGE_BINDING : 0) |
         (sampleCount === 1 ? GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST : 0),
     })
-  let uniform,
-    layout,
-    pipelines = [],
-    sceneMS,
-    shadowMS,
-    hdrMS,
-    ssrMS,
-    displayPipeline,
-    linear,
-    point
+  let uniform, layout, pipelineLayout, linear, point
+  const pipelines = new Map()
+  const shaderModules = new Map()
+  async function pipeline(program, count, targetFormat) {
+    const key = `${program}/${count}/${targetFormat}`
+    if (!pipelines.has(key)) {
+      const build = async () => {
+        if (!shaderModules.has(program)) {
+          const load = async () => {
+            const response = await fetch(shaderDirectory + `aa-${program}.json`)
+            if (!response.ok) throw Error('Missing AA HLSL shader ' + program)
+            const data = await response.json()
+            return {
+              vertex: device.createShaderModule({ code: data.vert }),
+              fragment: device.createShaderModule({ code: data.frag }),
+            }
+          }
+          shaderModules.set(
+            program,
+            load().catch((error) => {
+              shaderModules.delete(program)
+              throw error
+            }),
+          )
+        }
+        const { vertex, fragment } = await shaderModules.get(program)
+        const targetCount = program === 17 ? 4 : [0, 10, 16].includes(program) ? 2 : 1
+        return device.createRenderPipelineAsync({
+          layout: pipelineLayout,
+          vertex: { module: vertex, entryPoint: 'VSMain' },
+          fragment: {
+            module: fragment,
+            entryPoint: 'PSMain',
+            targets: Array.from({ length: targetCount }, () => ({ format: targetFormat })),
+          },
+          primitive: { topology: 'triangle-list', cullMode: 'none' },
+          multisample: { count },
+          ...([0, 9, 10, 16, 17].includes(program)
+            ? {
+                depthStencil: {
+                  format: 'depth32float',
+                  depthWriteEnabled: true,
+                  depthCompare: 'less',
+                },
+              }
+            : {}),
+        })
+      }
+      pipelines.set(
+        key,
+        build().catch((error) => {
+          pipelines.delete(key)
+          throw error
+        }),
+      )
+    }
+    return pipelines.get(key)
+  }
   try {
     uniform = device.createBuffer({
       size: 256 * 96,
@@ -195,50 +249,7 @@ export async function createAntiAliasingView({
             : { sampler: { type: i === 9 ? 'filtering' : 'non-filtering' } }),
       })),
     })
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] })
-    async function pipeline(program, count = 1, targetFormat = 'rgba16float') {
-      const response = await fetch(shaderDirectory + `aa-${program}.json`)
-      if (!response.ok) throw Error('Missing AA HLSL shader ' + program)
-      const data = await response.json()
-      return device.createRenderPipelineAsync({
-        layout: pipelineLayout,
-        vertex: { module: device.createShaderModule({ code: data.vert }), entryPoint: 'VSMain' },
-        fragment: {
-          module: device.createShaderModule({ code: data.frag }),
-          entryPoint: 'PSMain',
-          targets: Array.from(
-            {
-              length:
-                program === 17 ? 4 : program === 0 || program === 10 || program === 16 ? 2 : 1,
-            },
-            () => ({
-              format: targetFormat,
-            }),
-          ),
-        },
-        primitive: { topology: 'triangle-list', cullMode: 'none' },
-        multisample: { count },
-        ...([0, 9, 10, 16, 17].includes(program)
-          ? {
-              depthStencil: {
-                format: 'depth32float',
-                depthWriteEnabled: true,
-                depthCompare: 'less',
-              },
-            }
-          : {}),
-      })
-    }
-    for (let i = 0; i < 22; i++) pipelines.push(await pipeline(i))
-    if (external) {
-      pipelines[29] = await pipeline(29)
-      pipelines[30] = await pipeline(30)
-    }
-    sceneMS = await pipeline(0, 4)
-    if (shadowScene) shadowMS = await pipeline(10, 4)
-    if (hdrScene) hdrMS = await pipeline(16, 4)
-    if (reflectionScene) ssrMS = await pipeline(17, 4)
-    displayPipeline = await pipeline(8, 1, format)
+    pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] })
     linear = device.createSampler({
       minFilter: 'linear',
       magFilter: 'linear',
@@ -246,10 +257,18 @@ export async function createAntiAliasingView({
       addressModeV: 'clamp-to-edge',
     })
     point = device.createSampler({ minFilter: 'nearest', magFilter: 'nearest' })
+  } catch (error) {
+    uniform?.destroy()
+    textures.forEach((t) => t?.destroy())
+    if (!borrowedDevice) device.destroy()
+    throw error
+  }
+  async function loadSmaaTables() {
     for (const [i, name, w, h] of [
       [AREA, 'area', 160, 560],
       [SEARCH, 'search', 64, 16],
     ]) {
+      if (textures[i]) continue
       const r = await fetch(shaderDirectory + 'smaa-' + name + '.bin')
       if (!r.ok) throw Error('Missing SMAA table')
       const data = new Uint8Array(await r.arrayBuffer())
@@ -262,11 +281,6 @@ export async function createAntiAliasingView({
         { width: w, height: h },
       )
     }
-  } catch (error) {
-    uniform?.destroy()
-    textures.forEach((t) => t?.destroy())
-    if (!borrowedDevice) device.destroy()
-    throw error
   }
   function uploadReflectionEnvironment(data, slot = 64) {
     const next = device.createTexture({
@@ -295,7 +309,7 @@ export async function createAntiAliasingView({
     height = h
     superSample = ss
     reset()
-    for (let i = 0; i <= modelFilmMapTarget; i++)
+    for (let i = 0; i <= lastTexture; i++)
       if (i !== AREA && i !== SEARCH && i !== 38 && i !== 39 && i !== 64 && !(i >= 73 && i <= 77)) {
         textures[i]?.destroy()
         textures[i] = undefined
@@ -320,6 +334,8 @@ export async function createAntiAliasingView({
       !!external?.hybrid?.ambientOcclusion && external.hybrid.halfResolutionAO && !debug
     const denoiseReflections = halfReflections && external.hybrid.reflectionDenoising
     const shadowGroups = Math.ceil((external?.shadowLightCount ?? 0) / 4)
+    const halfHybridShadows =
+      !debug && external?.hybrid?.shadows && external.hybrid.halfResolutionShadows
     const temporalShadows =
       shadowGroups > 0 &&
       !!external?.hybrid?.shadows &&
@@ -436,11 +452,26 @@ export async function createAntiAliasingView({
         if (denoiseReflections || temporalShadows || halfAO) add(-2, 18)
         add(-4, 85)
         if (external.hybrid || external.halfShadows) {
-          const shadow = add(-7, 92)
-          shadow.sources.splice(0, 4, 85, 86, 87, 88)
-          shadow.sources[8] = modelClearcoatTarget
-          shadow.sources[10] = modelSpecularMapTarget
-          shadow.sources[11] = modelFilmMapTarget
+          const addShadows = (program, target) => {
+            const shadow = add(program, target)
+            shadow.sources.splice(0, 4, 85, 86, 87, 88)
+            shadow.sources[8] = modelClearcoatTarget
+            shadow.sources[10] = modelSpecularMapTarget
+            shadow.sources[11] = modelFilmMapTarget
+            return shadow
+          }
+          if (halfHybridShadows) {
+            const coarse = addShadows(-11, compactShadow)
+            coarse.u[4] *= 0.5
+            coarse.u[5] *= 0.5
+          }
+          const fallback = addShadows(-7, halfHybridShadows ? halfShadowRaw : 92)
+          const scale = superSample ? 2 : 1
+          fallback.sparseShadow =
+            halfHybridShadows &&
+            external.hybrid.sparseShadowFallback &&
+            4 * (4 + (width * scale + 2) * (height * scale + 2)) <=
+              Math.min(device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize)
         }
         if (halfReflections) {
           const reflection = add(-8, hybridReflectionTarget)
@@ -521,6 +552,16 @@ export async function createAntiAliasingView({
             guide.u[8] = 1
           }
         }
+        if (halfHybridShadows)
+          for (let i = 0; i < Math.max(1, shadowGroups); ++i) {
+            const p = add(30, 92 + i)
+            p.sources[0] = halfShadowRaw + i
+            p.sources[1] = 86
+            p.sources[2] = 85
+            p.sources[3] = compactShadow + i
+            p.sources[6] = 87
+            p.u[11] = 5
+          }
         let resolvedShadows = 92
         if (temporalShadows) {
           const previousShadows = frames % 2 ? shadowHistoryA : shadowHistoryB
@@ -597,8 +638,15 @@ export async function createAntiAliasingView({
           guide.sources[4] = 18
           guide.sources[6] = 87
           guide.u[11] = 2
+          // Reuse the trace target after history resolve. Filter only the displayed AO.
+          const spatial = add(30, hybridAO)
+          spatial.sources[0] = currentAO
+          spatial.sources[1] = 86
+          spatial.sources[4] = 18
+          spatial.sources[6] = 87
+          spatial.u[11] = 4
           const composite = add(30, aoCombinedPosition)
-          composite.sources[0] = currentAO
+          composite.sources[0] = hybridAO
           composite.sources[1] = 86
           composite.sources[2] = 85
           composite.sources[6] = 87
@@ -713,7 +761,26 @@ export async function createAntiAliasingView({
       b.sources[2] = W
       filtered = F
     }
+    const outlines = !debug ? external?.outlines : null
+    const scale = effectiveMethod === 'ssaa' ? 2 : 1
+    if (outlines?.hoveredId) {
+      add(-4, 85).outlineGroup = 1
+      crop(hoverOutlineMask, 85, width * scale, height * scale, false)
+    }
+    if (outlines?.selectedIds.length) {
+      add(-4, 85).outlineGroup = 2
+      crop(selectedOutlineMask, 85, width * scale, height * scale, false)
+    }
     const p = add(8, O)
+    if (outlines?.hoveredId || outlines?.selectedIds.length) p.u[27] = 5
+    if (outlines?.hoveredId) {
+      p.sources[1] = hoverOutlineMask
+      p.u.splice(48, 4, ...outlines.hovered.color, outlines.hovered.width)
+    }
+    if (outlines?.selectedIds.length) {
+      p.sources[2] = selectedOutlineMask
+      p.u.splice(52, 4, ...outlines.selected.color, outlines.selected.width)
+    }
     p.sources[0] = filtered
     if ((!shadowScene && !hdrScene && !reflectionScene) || settings.split)
       p.sources[3] = post.baseline
@@ -735,6 +802,7 @@ export async function createAntiAliasingView({
     const captureRevision = [...probeRevision],
       capturing = passes.filter((p) => p.program === 21).map((p) => p.target - 73)
     const used = new Set([DUMMY])
+    const sparse = passes.some((pass) => pass.sparseShadow)
     for (const p of passes) {
       used.add(p.target)
       p.sources.forEach((i) => used.add(i))
@@ -744,7 +812,7 @@ export async function createAntiAliasingView({
         used.add(modelSpecularMapTarget)
         used.add(modelFilmMapTarget)
       }
-      if (p.program === 17 || p.program === -4 || p.program === -7) {
+      if (p.program === 17 || p.program === -4 || p.program === -7 || p.program === -11) {
         for (let a = 1; a < 4; a++) used.add(p.target + a)
       }
       if (p.program === 0 || p.program === 10 || p.program === 16) used.add(p.target + 1)
@@ -756,7 +824,7 @@ export async function createAntiAliasingView({
         if (!external) used.add(MM)
       }
     }
-    for (let i = 0; i <= modelFilmMapTarget; i++) {
+    for (let i = 0; i <= lastTexture; i++) {
       if (i === AREA || i === SEARCH || i === 64 || i === 77) continue
       if (!used.has(i)) {
         textures[i]?.destroy()
@@ -776,7 +844,13 @@ export async function createAntiAliasingView({
           i === 22 ? shadowSettings.resolution : i === DUMMY ? 1 : h * (big ? 2 : 1) + (raw ? 2 : 0)
       if (i >= 23) [tw, th] = postResourceSize(i, w, h)
       if ((i >= 42 && i < 64) || i >= 65) [tw, th] = reflectionResourceSize(i, w, h, superSample)
-      if ((i >= 85 && i < 96) || i === modelClearcoatTarget) {
+      if (i === hoverOutlineMask || i === selectedOutlineMask) [tw, th] = [w, h]
+      if (i >= compactShadow && i < halfShadowRaw) {
+        const scale = superSample ? 2 : 1
+        tw = Math.ceil((w * scale) / 2) + 2
+        th = Math.ceil((h * scale) / 2) + 2
+      }
+      if ((i >= 85 && i < 96) || i === modelClearcoatTarget || i >= halfShadowRaw) {
         const scale = superSample ? 2 : 1
         tw = w * scale + 2
         th = h * scale + 2
@@ -805,7 +879,13 @@ export async function createAntiAliasingView({
         tw = Math.ceil((w * scale) / 2) + 2
         th = Math.ceil((h * scale) / 2) + 2
       }
-      if (textures[i] && (textures[i].width !== tw || textures[i].height !== th)) {
+      const storage = sparse && i >= halfShadowRaw
+      if (
+        textures[i] &&
+        (textures[i].width !== tw ||
+          textures[i].height !== th ||
+          Boolean(textures[i].usage & GPUTextureUsage.STORAGE_BINDING) !== storage)
+      ) {
         textures[i].destroy()
         textures[i] = undefined
       }
@@ -815,6 +895,7 @@ export async function createAntiAliasingView({
           th,
           'rgba16float',
           [MC, MM, 19, 20, 46, 47, 48, 49].includes(i) ? 4 : 1,
+          storage,
         )
     }
     // With temporal OIT, only the opaque raw target is retained by the graph.
@@ -848,7 +929,17 @@ export async function createAntiAliasingView({
       depthShadow?.destroy()
       depthShadow = undefined
     }
-    if (external) await external.prepare(w, h, settings, frames)
+    const [displayPipeline] = await Promise.all([
+      pipeline(passes.at(-1).program, 1, format),
+      ...passes
+        .filter((pass) => pass.program >= 0)
+        .map(async (pass) => {
+          pass.pipeline = await pipeline(pass.program, pass.ms ? 4 : 1, 'rgba16float')
+        }),
+      used.has(AREA) ? loadSmaaTables() : undefined,
+      external?.prepare(w, h, settings, frames, passes),
+    ])
+    check()
     const encoder = device.createCommandEncoder()
     device.pushErrorScope('validation')
     for (const i of [HA, HB, PM, DUMMY])
@@ -866,12 +957,21 @@ export async function createAntiAliasingView({
         p.end()
       }
     function render(p, index, present = false) {
+      if (p.sparseShadow) {
+        external.sparseShadows(
+          encoder,
+          p.sources.slice(0, 3).map((i) => textures[i]),
+          Array.from({ length: 4 }, (_, i) => textures[p.target + i]),
+        )
+        return
+      }
       if (p.hitReprojection) external.writeReflectionReprojection(p.u)
       device.queue.writeBuffer(uniform, index * 256, new Float32Array(p.u))
       const scene =
           (p.program <= 0 &&
             p.program !== -8 &&
             p.program !== -9 &&
+            p.program !== -11 &&
             !(p.program === -7 && external?.halfShadows)) ||
           p.program === 9 ||
           p.program === 10 ||
@@ -884,7 +984,7 @@ export async function createAntiAliasingView({
           length:
             p.program === -4
               ? 7
-              : p.program === 17 || p.program === -7
+              : p.program === 17 || p.program === -7 || p.program === -11
                 ? 4
                 : p.program === -6 || p.program === 0 || p.program === 10 || p.program === 16
                   ? 2
@@ -956,26 +1056,16 @@ export async function createAntiAliasingView({
               p.program === -6 ||
               p.program === -7 ||
               p.program === -8 ||
-              p.program === -9
+              p.program === -9 ||
+              p.program === -11
               ? p.sources.slice(0, 12).map((i) => textures[i])
               : null,
+            p.outlineGroup || 0,
           )
         pass.end()
         return
       }
-      pass.setPipeline(
-        present
-          ? displayPipeline
-          : p.ms
-            ? p.program === 17
-              ? ssrMS
-              : p.program === 16
-                ? hdrMS
-                : p.program === 10
-                  ? shadowMS
-                  : sceneMS
-            : pipelines[p.program],
-      )
+      pass.setPipeline(present ? displayPipeline : p.pipeline)
       const group = device.createBindGroup({
         layout,
         entries: Array.from({ length: 19 }, (_, i) => ({

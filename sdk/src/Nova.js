@@ -103,6 +103,7 @@ class Renderer {
     this.#check()
     const caps = hybridCapabilities(!!this.#model?.skinned)
     caps.halfResolutionReflections = caps.supported && canUseHalfReflections(this.#device.limits)
+    caps.sparseShadowFallback = caps.supported && canUseDeferred(this.#device.limits)
     return canUseDeferred(this.#device.limits)
       ? caps
       : {
@@ -110,6 +111,10 @@ class Renderer {
           supported: false,
           reason: `Hybrid requires ${deferredLimits.maxColorAttachmentBytesPerSample} color bytes per sample and ${deferredLimits.maxSampledTexturesPerShaderStage} sampled textures per shader stage.`,
         }
+  }
+  #sceneOutlines = null
+  #hasSceneOutlines() {
+    return !!this.#sceneModel && !!this.#sceneOutlines
   }
   #rasterSettings = defaultRasterSettings()
   getRasterSettings() {
@@ -241,6 +246,8 @@ class Renderer {
       typeof next.textureFiltering !== 'boolean'
     )
       throw Error('Invalid AA settings')
+    if (this.#viewportGrid.enabled && (next.method === 'msaa' || next.split))
+      throw Error('Viewport grid does not support MSAA or AA split')
     if (this.#rasterSettings.pipeline === 'deferred' && next.method === 'msaa')
       throw Error('Deferred MSAA is not supported')
     if (this.#hasRasterTransparency() && (['msaa', 'taa'].includes(next.method) || next.split))
@@ -291,9 +298,12 @@ class Renderer {
             return owner.#useHalfShadows()
           },
           get raster() {
-            return owner.#useHalfShadows() || owner.#requiresDeferredMaterialPass()
+            return owner.#useHalfShadows() || owner.#requiresDeferredMaterialPass() || owner.#hasViewportGrid()
               ? { ...owner.#rasterSettings, pipeline: 'deferred' }
               : owner.#rasterSettings
+          },
+          get outlines() {
+            return owner.#hasSceneOutlines() ? owner.#sceneOutlines : null
           },
           get alphaBlend() {
             return owner.#hasRasterTransparency()
@@ -305,9 +315,14 @@ class Renderer {
             this.#clear.map((v, i) =>
               i === 3 || !this.#model ? v : v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4,
             ),
-          prepare: async (w, h, settings, frames) => {
+          prepare: async (w, h, settings, frames, passes) => {
             if (this.#model)
               this.#model.setHybrid(this.#renderMode === 'hybrid' ? this.#hybrid : null)
+            if (this.#model)
+              this.#model.setOutlines(
+                this.#hasSceneOutlines() ? this.#sceneOutlines : null,
+                this.#sceneData.drawInstanceIds,
+              )
             if (this.#model)
               await this.#model.prepareAA(
                 this.getViewCamera(),
@@ -320,9 +335,13 @@ class Renderer {
                 this.#postSettings,
                 scene.raster,
                 scene.halfShadows,
+                passes,
               )
-            else if (!this.#triangleAA[settings.method === 'msaa' ? 4 : 1]) {
-              const count = settings.method === 'msaa' ? 4 : 1,
+            else if (
+              passes.some((pass) => pass.program === -1) &&
+              !this.#triangleAA[passes.some((pass) => pass.ms) ? 4 : 1]
+            ) {
+              const count = passes.some((pass) => pass.ms) ? 4 : 1,
                 shader = this.#triangleShader
               this.#triangleAA[count] = await this.#device.createRenderPipelineAsync({
                 layout: 'auto',
@@ -345,14 +364,16 @@ class Renderer {
               })
             }
           },
-          draw: (pass, motion, count, program, gbuffers) => {
+          draw: (pass, motion, count, program, gbuffers, outlineGroup) => {
             if (this.#model)
-              this.#model.drawAA(pass, motion, count, this.#environmentSettings, program, gbuffers)
+              this.#model.drawAA(pass, motion, count, this.#environmentSettings, program, gbuffers, outlineGroup)
             else {
               pass.setPipeline(this.#triangleAA[count])
               pass.draw(3)
             }
           },
+          sparseShadows: (encoder, guides, fallback) =>
+            this.#model.dispatchSparseShadows(encoder, guides, fallback),
           writeReflectionReprojection: (uniforms) =>
             this.#model?.writeReflectionReprojection(uniforms),
           finish: () => this.#model?.finishAA(),
@@ -397,6 +418,34 @@ class Renderer {
   #environmentURL
   #environmentSettings = defaultEnvironment()
   #fogSettings = copyFog()
+  #viewportGrid = {
+    enabled: false, elevation: 0, minorSpacing: 1, majorSpacing: 10, lineWidth: 1,
+    minorColor: [0.18, 0.18, 0.18, 0.32], majorColor: [0.24, 0.24, 0.24, 0.65],
+  }
+  setViewportGrid(value) {
+    this.#check()
+    const next = { ...this.#viewportGrid, ...value }
+    const color = (rgba) => Array.isArray(rgba) && rgba.length === 4 &&
+      rgba.every((c) => Number.isFinite(c) && c >= 0 && c <= 1)
+    if (typeof next.enabled !== 'boolean' ||
+        ![next.elevation, next.minorSpacing, next.majorSpacing, next.lineWidth].every(Number.isFinite) ||
+        next.minorSpacing < 0.0001 || next.majorSpacing < next.minorSpacing ||
+        next.lineWidth < 0.25 || next.lineWidth > 4 || !color(next.minorColor) || !color(next.majorColor))
+      throw Error('Invalid viewport grid settings')
+    if (next.enabled && (!canUseDeferred(this.#device.limits) || this.#aaSettings.method === 'msaa' || this.#aaSettings.split))
+      throw Error('Viewport grid requires deferred support and does not support MSAA or AA split')
+    this.#viewportGrid = { ...next, minorColor: [...next.minorColor], majorColor: [...next.majorColor] }
+    this.#resetAA()
+  }
+  getViewportGrid() {
+    this.#check()
+    const grid = this.#viewportGrid
+    return { ...grid, minorColor: [...grid.minorColor], majorColor: [...grid.majorColor] }
+  }
+  #hasViewportGrid() {
+    return this.#viewportGrid.enabled && !!this.#model
+  }
+
   #shadowSettings = copyShadows()
   #model
   #shaderDirectory
@@ -438,6 +487,30 @@ class Renderer {
   getSceneAssetBounds(id) {
     this.#check()
     return this.#sceneModel ? this.#sceneData.assetBounds(id) : null
+  }
+  /** Set visible scene outlines. Empty IDs clear the overlay. */
+  setSceneOutlines({ hoveredId = '', selectedIds = [], hovered = {}, selected = {} } = {}) {
+    this.#check()
+    const style = (value, fallback) => {
+      const { color = fallback, width = 2 } = value
+      if (!Array.isArray(color) || color.length !== 3 ||
+          color.some((v) => !Number.isFinite(v) || v < 0 || v > 1) ||
+          !Number.isInteger(width) || width < 1 || width > 4)
+        throw Error('Outline color must be in [0, 1] and width must be 1–4 pixels')
+      return { color: [...color], width }
+    }
+    if (typeof hoveredId !== 'string' || !Array.isArray(selectedIds) ||
+        selectedIds.some((id) => typeof id !== 'string'))
+      throw Error('Outline IDs must be strings')
+    const next = hoveredId || selectedIds.length ? {
+      hoveredId, selectedIds: [...selectedIds],
+      hovered: style(hovered, [.35, .65, 1]), selected: style(selected, [1, .42, .08]),
+    } : null
+    if (next && !canUseDeferred(this.#device.limits))
+      throw Error('Scene outlines require deferred WebGPU support')
+    if (JSON.stringify(next) === JSON.stringify(this.#sceneOutlines)) return
+    this.#sceneOutlines = next
+    this.#resetAA()
   }
   /** Replace static raster instances. Assets: {id,url,sourceSpace?}; instances: {id,assetId,world?}. */
   setScene(assets, instances) {
@@ -1304,7 +1377,8 @@ class Renderer {
   async #drawFrame() {
     this.#check()
     this.#refreshAnimationShadows()
-    this.#model?.setRasterSettings(this.#fogSettings, this.#shadowSettings, this.#lights)
+    this.#model?.setRasterSettings(this.#fogSettings, this.#shadowSettings, this.#lights,
+      this.#viewportGrid, this.#clear)
     if (!this.#pipeline && !this.#model) throw Error('Call setShader or loadModel first')
     const rect = this.#canvas.getBoundingClientRect()
     if (!rect.width || !rect.height) return 'skipped'
@@ -1351,6 +1425,8 @@ class Renderer {
           this.#postSettings.enabled ||
           this.#rasterSettings.pipeline === 'deferred' ||
           this.#requiresDeferredMaterialPass() ||
+          this.#hasSceneOutlines() ||
+          this.#hasViewportGrid() ||
           this.#useHalfShadows() ||
           this.#hasRasterTransparency())
       )

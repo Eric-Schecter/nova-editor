@@ -145,7 +145,7 @@ export class SceneData {
       )
         throw Error('Invalid scene asset ID, URL, sourceSpace or BVH strategy')
       paths.set(a.id, a.url)
-      strategies.set(a.id, a.bvh ?? 'median')
+      strategies.set(a.id, a.bvh)
       variants.set(a.id, a.materialVariant)
     }
     const ids = new Set(),
@@ -180,7 +180,13 @@ export class SceneData {
             ? previous.data
             : await loadGLB(paths.get(id), { pack: false, materialVariant: variants.get(id) })
         if (data.animation && !data.skinInputs) createAnimationPlayer(data)
-        const strategy = strategies.get(id)
+        // Larger static meshes amortize SAH construction and benefit from
+        // tighter bounds across the AO, shadow and reflection passes.
+        const strategy =
+          strategies.get(id) ??
+          (!data.animation && data.vertices.length / modelTriangleFloats >= 32_768
+            ? 'sah'
+            : 'median')
         next.set(id, {
           data,
           strategy,
@@ -286,6 +292,7 @@ export class SceneData {
     )
       this.model = { ...this.model, jointMatrices: palette }
     this.players = players
+    const drawInstanceIds = []
     const instances = new Float32Array(
         input.length * 48 + (this.model.materialRecords?.length || 0),
       ),
@@ -345,6 +352,7 @@ export class SceneData {
           }
           if (!values.every((v) => Number.isFinite(v) && Number.isFinite(Math.fround(v))))
             throw Error('Instance transform overflows float32')
+          drawInstanceIds.push(i.id)
           instances.set(values, index * 48)
           index++
         }
@@ -360,6 +368,7 @@ export class SceneData {
     this.inputSnapshot = structuredClone(input)
     this.pickInstances = effective.map((i) => ({ ...i, world: Array.from(i.world, Math.fround) }))
     this.sourceSpaces = spaces
+    this.drawInstanceIds = drawInstanceIds
     this.instanceBytes = instances
     this.draws = draws
     return { model: this.model, ...this.shadowInstances() }

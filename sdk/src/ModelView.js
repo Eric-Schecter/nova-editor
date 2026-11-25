@@ -1,4 +1,4 @@
-import { canUseDeferred, canUseHalfReflections } from './RasterPipeline.js'
+import { canUseHalfReflections } from './RasterPipeline.js'
 import { modelVertexFloats, modelTriangleFloats } from './ModelVertex.js'
 import { createHybridProbes, probeSceneBounds } from './HybridProbes.js'
 import { PickMesh } from './Picking.js'
@@ -121,8 +121,29 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         GPUBufferUsage.STORAGE,
         'Nova previous palette',
       )
-    let lastScene, lastPalette, currentScene, aaPipelines
+    let lastScene, lastPalette, currentScene
+    const aaPipelines = {}
+    const aaShaders = new Map()
+    function aaShader(name) {
+      if (!aaShaders.has(name)) {
+        const path = shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1) + name + '.json'
+        aaShaders.set(
+          name,
+          fetch(path)
+            .then((response) => {
+              if (!response.ok) throw Error('Missing raster AA shader ' + name)
+              return response.json().then(({ vert, frag }) => ({ vert, frag }))
+            })
+            .catch((error) => {
+              aaShaders.delete(name)
+              throw error
+            }),
+        )
+      }
+      return aaShaders.get(name)
+    }
     let rayProvider, pathData
+    let shadowClassify, shadowTrace, shadowWork
     const layout = device.createBindGroupLayout({
       entries: [
         {
@@ -427,6 +448,8 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
       )
       probeEnabled = true
     }
+    let viewportGrid, gridBackground
+    let outlines = null, outlinedIds = null, outlineMarks = new Map()
     function writeGlobals() {
       const record = new Float32Array(48)
       record.set(
@@ -457,6 +480,14 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         (hybrid?.blueNoiseAO ? 1 : 0) |
         (hybrid?.blueNoiseShadows ? 2 : 0) |
         (hybrid?.blueNoiseReflections ? 4 : 0)
+      record[16] = hybrid?.halfResolutionShadows && hybrid.view === 'final' ? 1 : 0
+      if (viewportGrid?.enabled) {
+        record.set(gridBackground.slice(0, 3).map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4), 17)
+        record.set([viewportGrid.minorSpacing, viewportGrid.majorSpacing, viewportGrid.elevation, viewportGrid.lineWidth], 20)
+        record.set(viewportGrid.minorColor, 24)
+        record.set(viewportGrid.majorColor, 28)
+      }
+
       record[9] = hybrid?.reflectionDenoising && hybrid.reflectionHitReprojection ? 1 : 0
       record.set([...rasterFog.color, ['off', 'linear', 'exp2'].indexOf(rasterFog.mode)], 32)
       record.set([rasterFog.nearDistance, rasterFog.farDistance, rasterFog.density, 0], 36)
@@ -573,75 +604,61 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         frames,
         postSettings,
         rasterSettings,
-        halfShadows = false,
+        halfShadows,
+        passes,
       ) {
-        if (!aaPipelines) {
-          const dir = shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1)
-          const packages = await Promise.all(
-            [
-              materialShader('model-aa'),
-              'sky-aa',
-              'model-motion',
-              'sky-motion',
-              'model-gbuffer',
-              materialShader('model-deferred'),
-              materialShader('model-oit'),
-              'model-hybrid-shadow',
-            ].map(async (n) => {
-              const r = await fetch(dir + n + '.json')
-              if (!r.ok) throw Error('Missing raster AA shader ' + n)
-              return r.json()
-            }),
-          )
-          aaPipelines = {}
-          for (const count of [1, 4]) {
-            aaPipelines['model' + count] = await pipelineFor(packages[0], false, count, false, true)
-            aaPipelines['sky' + count] = await pipelineFor(packages[1], true, count, false, true)
-          }
-          if (canUseDeferred(device.limits)) {
-            aaPipelines.gbuffer = await pipelineFor(packages[4], false, 1, false, true, true)
-            aaPipelines.deferred = await pipelineFor(
-              packages[5],
-              false,
-              1,
-              false,
-              true,
-              false,
-              true,
+        const programs = new Set(passes.map((pass) => pass.program))
+        const rasterShadow = passes.some((pass) => pass.program === -7 && !pass.sparseShadow)
+        const needsSky = environment && settings.showBackground
+        const pending = new Map()
+        const require = (key, shader, ...options) => {
+          if (!aaPipelines[key] && !pending.has(key))
+            pending.set(
+              key,
+              aaShader(shader).then(async (source) => {
+                aaPipelines[key] = await pipelineFor(source, ...options)
+              }),
             )
-            aaPipelines.hybridShadow = await pipelineFor(
-              packages[7],
-              false,
-              1,
-              false,
-              true,
-              false,
-              false,
-              false,
-              true,
-            )
-          }
-          aaPipelines.oit = await pipelineFor(
-            packages[6],
-            false,
-            1,
-            false,
-            true,
-            false,
-            false,
-            true,
-          )
-          aaPipelines.motion = await pipelineFor(packages[2], false, 1, true, true)
-          aaPipelines.skyMotion = await pipelineFor(packages[3], true, 1, true, true)
         }
-        if (hybrid?.reflections && hybrid.halfResolutionReflections && !aaPipelines.deferredHalf) {
-          const dir = shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1)
+        for (const pass of passes) {
+          if (pass.program !== -1) continue
+          const count = pass.ms ? 4 : 1
+          if (data.vertices.length)
+            require('model' + count, materialShader('model-aa'), false, count, false, true)
+          if (needsSky) require('sky' + count, 'sky-aa', true, count, false, true)
+        }
+        if (programs.has(-2)) {
+          if (data.vertices.length) require('motion', 'model-motion', false, 1, true, true)
+          if (needsSky) require('skyMotion', 'sky-motion', true, 1, true, true)
+        }
+        if (programs.has(-4) && data.vertices.length)
+          require('gbuffer', 'model-gbuffer', false, 1, false, true, true)
+        if (programs.has(-5) && !(hybrid?.reflections && hybrid.halfResolutionReflections))
+          require('deferred', materialShader('model-deferred'), false, 1, false, true, false, true)
+        if (programs.has(-6) && data.vertices.length)
+          require('oit', materialShader('model-oit'), false, 1, false, true, false, false, true)
+        if (rasterShadow)
+          require(
+            halfShadows ? 'halfShadow' : 'hybridShadow',
+            'model-hybrid-shadow',
+            false, 1, false, true, false, false, false, true, false, false, false, halfShadows,
+          )
+        if (programs.has(-11))
+          require(
+            'compactShadow', 'model-hybrid-shadow-compact',
+            false, 1, false, true, false, false, false, true, false, false, false, true,
+          )
+        if (programs.has(-9))
+          require(
+            'hybridAO', 'model-hybrid-ao',
+            false, 1, false, true, false, false, false, false, false, 'ao',
+          )
+        await Promise.all(pending.values())
+        if (programs.has(-8) && !aaPipelines.deferredHalf) {
           const [trace, combine] = await Promise.all(
-            ['model-hybrid-reflection', 'model-deferred-half'].map(async (name) => {
-              const response = await fetch(dir + materialShader(name) + '.json')
-              if (!response.ok) throw Error('Missing raster AA shader ' + name)
-              return response.json()
-            }),
+            ['model-hybrid-reflection', 'model-deferred-half'].map((name) =>
+              aaShader(materialShader(name)),
+            ),
           )
           aaPipelines.halfReflection = await pipelineFor(
             trace,
@@ -671,26 +688,21 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
             true,
           )
         }
-        if (halfShadows && !aaPipelines.halfShadow) {
-          const path =
-            shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1) + 'model-hybrid-shadow.json'
-          const response = await fetch(path)
-          if (!response.ok) throw Error('Missing half-resolution shadow shader')
-          aaPipelines.halfShadow = await pipelineFor(
-            await response.json(),
-            false,
-            1,
-            false,
-            true,
-            false,
-            false,
-            false,
-            true,
-            false,
-            false,
-            false,
-            true,
-          )
+        if (passes.some((pass) => pass.sparseShadow) && !shadowTrace) {
+          const dir = shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1)
+          const pipeline = async (name, entryPoint) => {
+            const response = await fetch(dir + 'model-shadow-' + name + '.json')
+            if (!response.ok) throw Error('Missing sparse shadow ' + name + ' shader')
+            const { compute } = await response.json()
+            return device.createComputePipelineAsync({
+              layout: 'auto',
+              compute: { module: device.createShaderModule({ code: compute }), entryPoint },
+            })
+          }
+          ;[shadowClassify, shadowTrace] = await Promise.all([
+            pipeline('classify', 'HybridShadowClassifyCS'),
+            pipeline('trace', 'HybridShadowTraceCS'),
+          ])
         }
         currentScene = sceneUniforms(
           data,
@@ -721,25 +733,6 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
           hybrid.halfResolutionAO &&
           hybrid.view === 'final' &&
           rasterSettings?.view === 'final'
-        if (halfAO && !aaPipelines.hybridAO) {
-          const r = await fetch(
-            shaderURL.slice(0, shaderURL.lastIndexOf('/') + 1) + 'model-hybrid-ao.json',
-          )
-          if (!r.ok) throw Error('Missing Hybrid AO shader')
-          aaPipelines.hybridAO = await pipelineFor(
-            await r.json(),
-            false,
-            1,
-            false,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            'ao',
-          )
-        }
         currentScene[58] = halfAO ? -(frames + 1) : 0
         currentScene[87] = hybrid?.temporalReconstruction
           ? frames + 1
@@ -775,6 +768,49 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         const palette = data.jointMatrices || new Float32Array(16)
         device.queue.writeBuffer(previousPalette, 0, frames && lastPalette ? lastPalette : palette)
       },
+      dispatchSparseShadows(encoder, guides, fallback) {
+        const { width, height } = guides[0]
+        const size = 4 * (4 + width * height)
+        if (!shadowWork || shadowWork.size !== size) {
+          shadowWork?.destroy()
+          shadowWork = device.createBuffer({
+            size,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+          })
+        }
+        const guideEntries = guides.map((texture, i) => ({
+          binding: 17 + i,
+          resource: texture.createView(),
+        }))
+        const workEntries = [
+          { binding: 20, resource: { buffer: shadowWork } },
+          ...fallback.map((texture, i) => ({ binding: 21 + i, resource: texture.createView() })),
+        ]
+        const bind = (pass, pipeline, index, entries) =>
+          pass.setBindGroup(
+            index,
+            device.createBindGroup({ layout: pipeline.getBindGroupLayout(index), entries }),
+          )
+        encoder.clearBuffer(shadowWork, 0, 16)
+        const classify = encoder.beginComputePass()
+        classify.setPipeline(shadowClassify)
+        bind(classify, shadowClassify, 1, guideEntries)
+        bind(classify, shadowClassify, 2, workEntries)
+        classify.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8))
+        classify.end()
+        const trace = encoder.beginComputePass()
+        trace.setPipeline(shadowTrace)
+        bind(trace, shadowTrace, 0, [
+          { binding: 0, resource: { buffer: uniform } },
+          { binding: 2, resource: textures[0].createView() },
+          { binding: 7, resource: sampler },
+          { binding: 14, resource: { buffer: instanceBuffer } },
+        ])
+        bind(trace, shadowTrace, 1, guideEntries)
+        bind(trace, shadowTrace, 2, workEntries)
+        trace.dispatchWorkgroupsIndirect(shadowWork, 0)
+        trace.end()
+      },
       writeReflectionReprojection(uniforms) {
         const previous = lastScene || currentScene
         uniforms.splice(28, 16, ...previous.subarray(0, 16))
@@ -782,8 +818,14 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         uniforms.splice(48, 12, ...currentScene.subarray(40, 52))
         uniforms.splice(60, 4, ...previous.subarray(16, 20))
       },
-      drawAA(pass, motion, count, settings, program, gbuffers) {
-        if (program === -5 || program === -7 || program === -8 || program === -9) {
+      drawAA(pass, motion, count, settings, program, gbuffers, outlineGroup) {
+        if (
+          program === -5 ||
+          program === -7 ||
+          program === -8 ||
+          program === -9 ||
+          program === -11
+        ) {
           const half = hybrid?.reflections && hybrid.halfResolutionReflections
           const halfCombine = program === -5 && half
           pass.setBindGroup(0, bindGroup)
@@ -811,17 +853,19 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
                 ? probeReflection
                   ? probeReflectionPipeline
                   : aaPipelines.halfReflection
-                : program === -7
-                  ? currentScene[66]
-                    ? aaPipelines.halfShadow
-                    : aaPipelines.hybridShadow
-                  : probeEnabled
-                    ? half
-                      ? probeDeferredHalf
-                      : probeDeferred
-                    : half
-                      ? aaPipelines.deferredHalf
-                      : aaPipelines.deferred,
+                : program === -11
+                  ? aaPipelines.compactShadow
+                  : program === -7
+                    ? currentScene[66]
+                      ? aaPipelines.halfShadow
+                      : aaPipelines.hybridShadow
+                    : probeEnabled
+                      ? half
+                        ? probeDeferredHalf
+                        : probeDeferred
+                      : half
+                        ? aaPipelines.deferredHalf
+                        : aaPipelines.deferred,
           )
           pass.draw(3)
           return
@@ -852,14 +896,14 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
                   : aaPipelines['model' + count],
           )
           if (sceneDraws !== null) {
-            for (const draw of sceneDraws)
-              if (draw.instanceCount)
-                pass.draw(
-                  draw.vertexCount,
-                  draw.instanceCount,
-                  draw.firstVertex,
-                  draw.firstInstance,
-                )
+            for (const draw of sceneDraws) {
+              if (outlineGroup) {
+                for (let i = draw.firstInstance; i < draw.firstInstance + draw.instanceCount; ++i)
+                  if (outlineMarks.get(i) === outlineGroup) pass.draw(draw.vertexCount, 1, draw.firstVertex, i)
+              } else if (draw.instanceCount) {
+                pass.draw(draw.vertexCount, draw.instanceCount, draw.firstVertex, draw.firstInstance)
+              }
+            }
           } else pass.draw(data.vertices.length / modelVertexFloats)
         }
       },
@@ -980,7 +1024,9 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         skyPipeline = nextPipeline
         environment = next
       },
-      setRasterSettings(fog, shadows, lights = null) {
+      setRasterSettings(fog, shadows, lights, grid, background) {
+        viewportGrid = grid
+        gridBackground = background
         if (rasterLights !== lights) {
           probes?.invalidate()
           rasterLights = lights
@@ -992,10 +1038,24 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         refreshSingleShadows()
         writeGlobals()
       },
+      setOutlines(value, ids) {
+        if (outlines === value && outlinedIds === ids) return
+        outlines = value
+        outlinedIds = ids
+        outlineMarks = new Map()
+        if (value && ids) {
+          const selected = new Set(value.selectedIds)
+          ids.forEach((id, index) => {
+            if (selected.has(id)) outlineMarks.set(index, 2)
+            else if (id === value.hoveredId) outlineMarks.set(index, 1)
+          })
+        }
+      },
       setInstances(bytes, draws, shadowRecords) {
         if (disposed) throw Error('Model has been disposed')
         probeBounds = undefined
         probes?.invalidate()
+        outlinedIds = null
         uploadInstances(bytes, draws, shadowRecords)
       },
       draw(camera, clear, width, height, lighting, light, settings) {
@@ -1064,6 +1124,7 @@ export async function createModelView(device, context, url, shaderURL, suppliedD
         disposed = true
         pathView?.dispose()
         probes?.dispose()
+        shadowWork?.destroy()
         for (const image of data.images) image.bitmap?.close()
         depth?.destroy()
         cube?.destroy()
