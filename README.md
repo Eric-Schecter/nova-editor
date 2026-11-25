@@ -36,4 +36,6 @@ cmake --build build --target nova_editor -j 6
 
 On Windows and Linux, find the executable in the build directory. The desktop app opens `project.json`, and the web editor opens project ZIP archives. To open a web project on desktop, extract the ZIP and open `project.json` with its `assets/` folder alongside it.
 
+**Native mobile** — See [iOS and Android build instructions](apps/mobile/README.md).
+
 See [SDK installation and version pinning](docs/SDK-DOWNLOAD.md), [Architecture](ARCHITECTURE.md), and [Validation](docs/VALIDATION.md) for details.

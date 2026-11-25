@@ -22,6 +22,9 @@
 #include "Viewport.hpp"
 #ifndef NOVA_EDITOR_WINDOW_HOST_CONTROLS
 #include <GLFW/glfw3.h>
+#else
+#include <SDL3/SDL.h>
+#include <mutex>
 #endif
 #include <chrono>
 #include <functional>
@@ -64,6 +67,33 @@ struct Editor
     double lastRenderedFrame = 0, averageFrameInterval = 0, lastStatsRefresh = 0;
     char frameStatsLabel[64] = "FPS -- | -- ms";
 
+    void syncOutlines()
+    {
+        render::SceneOutlines next;
+        if (!runtimeScene && !mainPreview)
+        {
+            const auto selectedNodes = editor::subtreeIds(history.scene, selections);
+            for (const auto& node : history.scene["nodes"])
+            {
+                if (!node.contains("assetId")) continue;
+                const auto id = node["id"].get<std::string>();
+                if (id != tools.hoveredId && !selectedNodes.count(id)) continue;
+                if (editor::inheritedFlag(history.scene, id, "hidden")) continue;
+                if (selectedNodes.count(id))
+                    next.selectedIds.push_back(id);
+                else
+                    next.hoveredId = id;
+            }
+        }
+        if (next.hoveredId != appliedOutlines.hoveredId || next.selectedIds != appliedOutlines.selectedIds)
+        {
+            window->SetSceneOutlines(next);
+            appliedOutlines = std::move(next);
+        }
+    }
+
+    render::SceneOutlines appliedOutlines;
+
     void recordViewportFrame(double now)
     {
         const double interval = now - lastRenderedFrame;
@@ -83,6 +113,12 @@ struct Editor
     }
     std::array<float, 4>   viewportRect{0, 24, 1110, 821};
     std::string            pendingFocus;
+    struct CameraFocus
+    {
+        editor::OrbitCamera from, to;
+        double started;
+    };
+    std::optional<CameraFocus> cameraFocus;
     bool                   lit               = true;
     bool                   lightInspector    = false;
     int                    assetInspectorTab = 0;
@@ -124,6 +160,11 @@ struct Editor
             if (value == render::RenderMode::RayTracing)
             {
                 auto settings = window->GetRayTracing();
+                const auto lamps = window->GetLights();
+                if (std::any_of(lamps.begin(), lamps.end(), [](const auto& light) {
+                    return light.enabled && light.type == render::LightType::Rectangle;
+                }))
+                    settings.integrator = render::PathIntegrator::PathTracing;
                 settings.maxBounces = 3;
                 settings.resolutionScale = .5f;
                 settings.denoise = true;
@@ -148,10 +189,6 @@ struct Editor
     editor::StudioSettings studio;
     editor::Json           saved = editor::emptyScene();
     std::string            selected, status = editor::language::text("Ready", "就绪"), preview;
-    char conversionSource[1024] = "", conversionTarget[1024] = "";
-    bool showConversion = false, packConversion = true;
-
-    bool meshConversion = false, fbxConversion = false;
     int meshExportFormat = 0;
     static std::string modelExtension(const std::filesystem::path& path)
     {
@@ -160,73 +197,6 @@ struct Editor
         return extension;
     }
 
-    void convertModel()
-    {
-        if (!*conversionSource || !*conversionTarget)
-            throw std::runtime_error("Enter both input and output paths");
-        const auto source = std::filesystem::absolute(conversionSource);
-        auto target = std::filesystem::absolute(conversionTarget);
-        const auto input = modelExtension(source), output = modelExtension(target);
-        if (fbxConversion && !((input == ".fbx" && output == ".glb") || (input == ".glb" && output == ".fbx")))
-            throw std::runtime_error("Choose FBX to GLB or GLB to FBX");
-        if (meshConversion && !((input == ".glb" && (output == ".obj" || output == ".stl")) ||
-            (output == ".glb" && (input == ".obj" || input == ".stl"))))
-            throw std::runtime_error("Choose OBJ/STL to GLB or GLB to OBJ/STL");
-        if (!fbxConversion && !meshConversion && input != (packConversion ? ".gltf" : ".glb"))
-            throw std::runtime_error("Unexpected model extension");
-        if (!fbxConversion && !meshConversion && packConversion && output != ".glb")
-            throw std::runtime_error("Output must have a .glb extension");
-        const bool objBundle = meshConversion && output == ".obj";
-        if (objBundle) target.replace_extension();
-        if (std::filesystem::exists(target))
-            throw std::runtime_error("Output already exists; choose a new path");
-        const auto bytes = fbxConversion ? editor::assets::Bytes{} : editor::assets::readBytes(source);
-        auto staging = target;
-        staging += ".tmp-" + uuid();
-        if (fbxConversion) staging += output;
-        auto write = [](const std::filesystem::path& path, const editor::assets::Bytes& data) {
-            std::ofstream stream(path, std::ios::binary);
-            stream.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-            stream.close();
-            if (!stream) throw std::runtime_error("Cannot write conversion output");
-        };
-        try
-        {
-            if (fbxConversion)
-                editor::assets::convertFBX(helperRoot.parent_path() / "fbx", source, staging);
-            else if (objBundle)
-            {
-                auto files = editor::assets::glbToOBJ(bytes);
-                if (!std::filesystem::create_directory(staging)) throw std::runtime_error("Cannot create OBJ output folder");
-                for (const auto& [name, data] : files) write(staging / name, data);
-            }
-            else if (meshConversion)
-                write(staging, input == ".glb" ? editor::assets::glbToMesh(bytes, true)
-                    : input == ".obj" ? editor::assets::objToGLB(bytes, [&](const std::string& path) {
-                        return editor::assets::readBytes(editor::safeAssetPath(source.parent_path(), path));
-                    }) : editor::assets::meshToGLB(bytes, true));
-            else if (packConversion)
-                write(staging, editor::assets::packGLTF(bytes, [&](const std::string& path) {
-                    return editor::assets::readBytes(editor::safeAssetPath(source.parent_path(), path));
-                }));
-            else
-            {
-                auto files = editor::assets::splitGLB(bytes);
-                if (!std::filesystem::create_directory(staging))
-                    throw std::runtime_error("Cannot create output folder");
-                for (const auto& [name, data] : files) write(staging / name, data);
-            }
-            if (std::filesystem::exists(target)) throw std::runtime_error("Output already exists");
-            std::filesystem::rename(staging, target);
-        }
-        catch (...)
-        {
-            std::error_code ignored;
-            std::filesystem::remove_all(staging, ignored);
-            throw;
-        }
-        status = "Converted model: " + target.string();
-    }
     char                   glbExportPath[1024] = "output/scene.glb";
     bool                   exportSelectionOnly = false, showGLBExport = false;
     char                   projectPath[1024] = "output/workspace/project.json", modelPath[1024] = "", name[256] = "";
@@ -549,13 +519,44 @@ struct Editor
     bool                         mainPreview = false;
     editor::OrbitCamera          editorCamera;
     std::string                  sceneViewKey, cameraNotice;
+    void addShowcaseLights()
+    {
+        const auto box = editor::sceneBounds(history.scene, assetBounds, "");
+        editor::V3 target{};
+        double scale = box ? .1 : 1.;
+        if (box)
+            for (size_t k = 0; k < target.size(); ++k)
+            {
+                target[k] = (box->minimum[k] + box->maximum[k]) / 2;
+                scale = std::max(scale, (box->maximum[k] - box->minimum[k]) / 16);
+            }
+        change([&](auto& s) {
+            s["schemaVersion"] = std::max(7, s["schemaVersion"].template get<int>());
+            auto addLamp = [&](const char* name, editor::V3 offset, double size, editor::V3 color, double power) {
+                auto id = uuid();
+                auto lamp = editor::createLight(id, "rectangle");
+                lamp["name"] = name;
+                lamp["transform"]["position"] = editor::add(target, editor::times(offset, scale));
+                lamp["light"]["width"] = lamp["light"]["height"] = size * scale;
+                lamp["light"]["color"] = color;
+                lamp["light"]["active"] = true;
+                constexpr double pi = 3.141592653589793;
+                lamp["light"]["intensity"] = power / (pi * size * size);
+                s["nodes"].push_back(std::move(lamp));
+                editor::aimObject(s, id, std::atan2(offset[0], offset[2]) * 180 / pi,
+                  std::atan2(offset[1], std::hypot(offset[0], offset[2])) * 180 / pi);
+            };
+            addLamp(editor::language::text("Warm key", "暖色主光"), {-3, 8, 5}, 6, {1, .83, .65}, 1350);
+            addLamp(editor::language::text("Cool fill", "冷色补光"), {4, 6, -4}, 5, {.72, .83, 1}, 720);
+        });
+    }
     void                         addSceneObject(const std::string& kind, const std::string& lightType = "directional")
     {
         auto id   = uuid();
         auto node = kind == "camera" ? editor::createCamera(id, window ? window->GetCamera() : editorCamera)
                                      : editor::createLight(id, lightType);
         change([&](auto& s) {
-            s["schemaVersion"] = std::max(kind == "light" ? 6 : 5, s["schemaVersion"].template get<int>());
+            s["schemaVersion"] = std::max(kind == "light" ? 7 : 5, s["schemaVersion"].template get<int>());
             s["nodes"].push_back(node);
             bool active = false;
             for (const auto& n : s["nodes"])
@@ -571,6 +572,7 @@ struct Editor
     }
     void toggleMainPreview()
     {
+        cameraFocus.reset();
         if (mainPreview)
         {
             mainPreview = false;
@@ -629,6 +631,15 @@ struct Editor
         window->SetClearColor({color[0], color[1], color[2], 1});
         auto light = editor::sceneDirectional(history.scene);
         window->SetLighting(lit ? render::LightingMode::PBR : render::LightingMode::Unlit);
+        if (renderMode == render::RenderMode::RayTracing
+            && window->GetRayTracing().integrator != render::PathIntegrator::PathTracing)
+        {
+            const auto lamps = editor::sceneLights(history.scene);
+            if (std::any_of(lamps.begin(), lamps.end(), [](const auto& light) {
+                return light.enabled && light.type == render::LightType::Rectangle;
+            }))
+                setIntegrator(render::PathIntegrator::PathTracing);
+        }
         editor::applySceneLights(*window, history.scene, studio.light(), {studio.shadows, studio.softness});
         if (mainPreview)
             try
@@ -744,7 +755,8 @@ struct Editor
                               n[kind] = component;
                               s["schemaVersion"] = std::max(
                                 kind == "light"
-                                  ? (component["type"] != "directional" && component["shadows"].template get<bool>()
+                                  ? (component["type"] == "rectangle" ||
+                                      (component["type"] != "directional" && component["shadows"].template get<bool>())
                                        ? 7
                                        : 6)
                                   : 5,
@@ -875,10 +887,10 @@ struct Editor
                   writeAssetVersion(id, editor::assets::writeGLB(editor::assets::regenerateGeometry(doc, geometry)));
               });
           },
-          [this, id](editor::Json material, std::array<std::string, 5> paths, std::array<bool, 5> remove) {
+          [this, id](editor::Json material, std::array<std::string, editor::assets::textureSlotCount> paths, std::array<bool, editor::assets::textureSlotCount> remove) {
               action([this, id, material, paths, remove] {
                   auto doc = selectedAsset(id);
-                  for (size_t i = 0; i < 5; i++)
+                  for (size_t i = 0; i < paths.size(); i++)
                   {
                       if (!paths[i].empty())
                           doc = editor::assets::applyTexture(
@@ -1179,22 +1191,150 @@ struct Editor
         assetInspector.key.clear();
         status = "Model expanded; undo available";
     }
-    void importModel()
+    void exportModel(const std::filesystem::path& path, int format,
+                     const std::optional<std::vector<std::string>>& selection)
     {
-        auto src = std::filesystem::absolute(modelPath);
+        if (history.previewBase.has_value()) throw std::runtime_error("Finish transform before export");
+        auto target = std::filesystem::absolute(path);
+        static constexpr const char* extensions[]{".glb", ".obj", ".stl", ".gltf", ".fbx"};
+        const auto extension = extensions[format];
+        if (target.extension().empty()) target += extension;
+        if (modelExtension(target) != extension)
+            throw std::runtime_error(std::string("Output must use ") + extension);
+        if (format == 1 || format == 3) target.replace_extension();
+        if (std::filesystem::exists(target)) throw std::runtime_error("File exists; choose a new output path");
+        auto root = assetRoot.empty() ? projectRoot() : assetRoot;
+        auto data = editor::assets::exportGLB(history.scene, [&](const std::string& path) {
+            return editor::assets::readBytes(editor::safeAssetPath(root, path));
+        }, selection);
+        if (format == 1 || format == 3)
+        {
+            const auto files = format == 1 ? editor::assets::glbToOBJ(data) : editor::assets::splitGLB(data);
+            auto staging = target;
+            staging += ".tmp-" + uuid();
+            std::filesystem::create_directories(staging);
+            try
+            {
+                for (const auto& [name, bytes] : files)
+                {
+                    std::ofstream out(staging / name, std::ios::binary);
+                    out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+                    out.close();
+                    if (!out) throw std::runtime_error("Cannot write model resource bundle");
+                }
+                if (std::filesystem::exists(target)) throw std::runtime_error("Output already exists");
+                std::filesystem::rename(staging, target);
+            }
+            catch (...)
+            {
+                std::error_code ignored;
+                std::filesystem::remove_all(staging, ignored);
+                throw;
+            }
+            status = "Exported model folder: " + target.string();
+            return;
+        }
+        if (format == 2) data = editor::assets::glbToMesh(data, true);
+        std::filesystem::create_directories(target.parent_path());
+        auto staging = target.parent_path() / (".nova-export-" + uuid());
+        std::filesystem::create_directory(staging);
+        try
+        {
+            auto input = staging / "scene.glb";
+            auto output = staging / (std::string("scene") + extension);
+            std::ofstream stream(format == 4 ? input : output, std::ios::binary);
+            stream.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+            stream.close();
+            if (!stream) throw std::runtime_error("Cannot write model");
+            if (format == 4)
+                editor::assets::convertFBX(helperRoot.parent_path() / "fbx", input, output);
+            if (std::filesystem::exists(target)) throw std::runtime_error("Output already exists");
+            std::filesystem::rename(output, target);
+        }
+        catch (...)
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(staging, ignored);
+            throw;
+        }
+        std::error_code ignored;
+        std::filesystem::remove_all(staging, ignored);
+        status = "Exported model: " + target.string();
+    }
+
+#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
+    struct FileChoice
+    {
+        std::mutex mutex;
+        bool ready = false;
+        std::string path, error;
+    };
+    std::shared_ptr<FileChoice> fileChoice;
+    std::function<void(const std::string&)> fileChosen;
+
+    void chooseFile(const SDL_DialogFileFilter& filter, bool save, std::function<void(const std::string&)> next)
+    {
+        if (fileChoice) return;
+        fileChoice = std::make_shared<FileChoice>();
+        fileChosen = std::move(next);
+        auto data = new std::shared_ptr<FileChoice>(fileChoice);
+        const auto complete = [](void* opaque, const char* const* files, int) {
+            std::unique_ptr<std::shared_ptr<FileChoice>> result(static_cast<std::shared_ptr<FileChoice>*>(opaque));
+            std::lock_guard lock((*result)->mutex);
+            if (!files) (*result)->error = SDL_GetError();
+            else if (files[0]) (*result)->path = files[0];
+            (*result)->ready = true;
+        };
+        auto window = SDL_GetKeyboardFocus();
+        if (save) SDL_ShowSaveFileDialog(complete, data, window, &filter, 1, nullptr);
+        else SDL_ShowOpenFileDialog(complete, data, window, &filter, 1, nullptr, false);
+    }
+
+    void finishFileChoice()
+    {
+        if (!fileChoice) return;
+        auto result = fileChoice;
+        std::lock_guard lock(result->mutex);
+        if (!result->ready) return;
+        fileChoice.reset();
+        auto next = std::move(fileChosen);
+        if (!result->error.empty()) status = result->error;
+        else if (!result->path.empty())
+            action([next = std::move(next), path = result->path] { next(path); });
+    }
+#endif
+
+    void chooseModelImport()
+    {
+#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
+        static const SDL_DialogFileFilter models{"3D models", "glb;gltf;obj;stl;fbx;step;stp"};
+        chooseFile(models, false, [this](const std::string& path) { importModel(path); });
+#else
+        sidebarTab = 1;
+        focusModelPath = true;
+#endif
+    }
+
+    void importModel(const std::filesystem::path& source = {})
+    {
+        auto src = std::filesystem::absolute(source.empty() ? std::filesystem::path(modelPath) : source);
         const auto extension = modelExtension(src);
         const bool isStep = extension == ".step" || extension == ".stp";
-        if (extension != ".glb" && extension != ".gltf" && extension != ".obj" && extension != ".stl" && !isStep)
-            throw std::runtime_error("Choose a glTF, GLB, OBJ, STL or STEP file");
+        const bool isFBX = extension == ".fbx";
+        if (extension != ".glb" && extension != ".gltf" && extension != ".obj" && extension != ".stl" && !isStep && !isFBX)
+            throw std::runtime_error("Choose a glTF, GLB, OBJ, STL, FBX or STEP file");
         if (assetRoot.empty())
             assetRoot = projectRoot();
         editor::assets::Bytes bytes;
-        if (isStep)
+        if (isStep || isFBX)
         {
-            const auto staging = std::filesystem::temp_directory_path() / ("nova-step-" + uuid() + ".glb");
+            const auto staging = std::filesystem::temp_directory_path() / ("nova-model-" + uuid() + ".glb");
             try
             {
-                editor::assets::runModelConverter(helperRoot.parent_path() / "step/nova_step", src, staging);
+                if (isFBX)
+                    editor::assets::convertFBX(helperRoot.parent_path() / "fbx", src, staging);
+                else
+                    editor::assets::runModelConverter(helperRoot.parent_path() / "step/nova_step", src, staging);
                 bytes = editor::assets::readBytes(staging);
             }
             catch (...)
@@ -1672,80 +1812,40 @@ struct Editor
         const float center = std::max(1.f, d.x - right), bottom = (assetsOpen ? 145.f : 30.f) + 25.f;
         const float sideTop = top + 35, sideHeight = std::max(1.f, d.y - sideTop - 25);
         scenePanelHeight = std::clamp(scenePanelHeight, 140.f, std::max(140.f, sideHeight * .55f));
-        if (showConversion)
+        if (showGLBExport)
         {
-            ImGui::OpenPopup("Convert model format");
-            showConversion = false;
-        }
-        if (ImGui::BeginPopupModal("Convert model format", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-        {
-            ImGui::TextUnformatted(fbxConversion ? "FBX <-> GLB" : meshConversion ? "OBJ / STL <-> GLB" : packConversion ? "glTF to GLB" : "GLB to glTF");
-            ImGui::InputText("Input model path", conversionSource, sizeof(conversionSource));
-            ImGui::InputText(fbxConversion ? "Output .fbx / .glb path" : meshConversion ? "Output .obj (folder) / .stl / .glb" : packConversion ? "Output .glb path" : "New output folder", conversionTarget, sizeof(conversionTarget));
-            if (ImGui::Button("Convert"))
-                action([this] { convertModel(); });
-            ImGui::SameLine();
-            if (ImGui::Button(editor::language::text("Close", "关闭"))) ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-        if (showGLBExport) {
             meshExportFormat = 0;
-            ImGui::OpenPopup("Export model"); showGLBExport = false;
+            ImGui::OpenPopup("Export model");
+            showGLBExport = false;
         }
-        if (ImGui::BeginPopupModal("Export model", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted(exportSelectionOnly ? "Selected subtrees + ancestor transforms" : "Complete scene");
-            ImGui::Combo("Format", &meshExportFormat, "GLB\0OBJ\0STL\0");
+        if (ImGui::BeginPopupModal("Export model", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            int scope = exportSelectionOnly && !selections.empty() ? 1 : 0;
+            ImGui::Combo("Scope", &scope, "Entire scene\0Selected objects\0");
+            exportSelectionOnly = scope == 1 && !selections.empty();
+            ImGui::Combo("Format", &meshExportFormat, "GLB\0OBJ\0STL\0glTF\0FBX\0");
+#ifndef NOVA_EDITOR_WINDOW_HOST_CONTROLS
             ImGui::InputText("Output path", glbExportPath, sizeof(glbExportPath));
-            ImGui::TextDisabled("%s", meshExportFormat == 1 ? "OBJ saves an adjacent MTL and textures in a new folder." : meshExportFormat == 2 ? "Geometry only. Materials, textures and animation are omitted."
-                                                       : "Embedded textures. Nova environment effects are not included.");
-            if (ImGui::Button("Export")) action([&] {
-                if (history.previewBase.has_value()) throw std::runtime_error("Finish transform before export");
-                auto target = std::filesystem::absolute(glbExportPath);
-                const char* extension = meshExportFormat == 0 ? ".glb" : meshExportFormat == 1 ? ".obj" : ".stl";
-                if (modelExtension(target) != extension)
-                    throw std::runtime_error(std::string("Output must use ") + extension);
-                if (meshExportFormat == 1) target.replace_extension();
-                if (std::filesystem::exists(target)) throw std::runtime_error("File exists; choose a new output path");
-                auto root = assetRoot.empty() ? projectRoot() : assetRoot;
-                auto data = editor::assets::exportGLB(history.scene, [&](const std::string& path) {
-                    return editor::assets::readBytes(editor::safeAssetPath(root, path));
-                }, exportSelectionOnly ? std::optional(selections) : std::nullopt);
-                if (meshExportFormat == 1)
-                {
-                    const auto files = editor::assets::glbToOBJ(data);
-                    auto staging = target;
-                    staging += ".tmp-" + uuid();
-                    std::filesystem::create_directories(staging);
-                    try
-                    {
-                        for (const auto& [name, bytes] : files)
-                        {
-                            std::ofstream out(staging / name, std::ios::binary);
-                            out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-                            out.close();
-                            if (!out) throw std::runtime_error("Cannot write OBJ bundle");
-                        }
-                        if (std::filesystem::exists(target)) throw std::runtime_error("Output already exists");
-                        std::filesystem::rename(staging, target);
-                    }
-                    catch (...)
-                    {
-                        std::error_code ignored;
-                        std::filesystem::remove_all(staging, ignored);
-                        throw;
-                    }
-                    status = "Exported OBJ folder: " + target.string();
-                    return;
-                }
-                if (meshExportFormat == 2) data = editor::assets::glbToMesh(data, true);
-                std::filesystem::create_directories(target.parent_path());
-                auto tmp = target; tmp += ".tmp";
-                { std::ofstream stream(tmp, std::ios::binary | std::ios::trunc); stream.write(reinterpret_cast<const char*>(data.data()), data.size());
-                  stream.close(); if (!stream) {std::filesystem::remove(tmp); throw std::runtime_error("Cannot write GLB");} }
-                std::filesystem::rename(tmp, target);
-                status = "Exported model: " + target.string(); ImGui::CloseCurrentPopup();
-            });
-            ImGui::SameLine(); if (ImGui::Button(editor::language::text("Cancel", "取消"))) ImGui::CloseCurrentPopup();
+#endif
+            if (meshExportFormat == 1 || meshExportFormat == 3)
+                ImGui::TextDisabled("%s", editor::language::text("The model and its resources are saved in a folder.", "模型及资源将保存到一个文件夹。"));
+            if (ImGui::Button(editor::language::text("Export…", "导出…")))
+            {
+                const auto format = meshExportFormat;
+                auto selection = exportSelectionOnly ? std::optional(selections) : std::nullopt;
+#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
+                static const SDL_DialogFileFilter formats[]{{"GLB model", "glb"}, {"OBJ bundle", "obj"}, {"STL model", "stl"},
+                  {"glTF resources", "gltf"}, {"FBX model", "fbx"}};
+                chooseFile(formats[format], true, [this, format, selection](const std::string& path) {
+                    exportModel(path, format, selection);
+                });
+#else
+                action([this, format, selection, path = std::string(glbExportPath)] { exportModel(path, format, selection); });
+#endif
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(editor::language::text("Cancel", "取消"))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
         if (ImGui::BeginMainMenuBar())
@@ -1768,42 +1868,12 @@ struct Editor
                     sidebarTab       = 1;
                     focusProjectPath = true;
                 }
-                if (ImGui::MenuItem("FBX <-> GLB..."))
+                if (ImGui::MenuItem(editor::language::text("Import…", "导入…")))
+                    chooseModelImport();
+                if (ImGui::MenuItem(editor::language::text("Export…", "导出…")))
                 {
-                    fbxConversion = true;
-                    meshConversion = false;
-                    showConversion = true;
-                }
-                if (ImGui::MenuItem("OBJ / STL <-> GLB..."))
-                {
-                    fbxConversion = false;
-                    meshConversion = true;
-                    showConversion = true;
-                }
-                if (ImGui::MenuItem("glTF to GLB..."))
-                {
-                    fbxConversion = false;
-                    meshConversion = false;
-                    packConversion = true;
-                    showConversion = true;
-                }
-                if (ImGui::MenuItem("GLB to glTF..."))
-                {
-                    fbxConversion = false;
-                    meshConversion = false;
-                    packConversion = false;
-                    showConversion = true;
-                }
-                if (ImGui::MenuItem("Export selected model...", nullptr, false, !selections.empty())) {
-                    exportSelectionOnly = true; showGLBExport = true;
-                }
-                if (ImGui::MenuItem("Export scene...")) {
-                    exportSelectionOnly = false; showGLBExport = true;
-                }
-                if (ImGui::MenuItem(editor::language::text("+ Import model", "＋ 导入模型")))
-                {
-                    sidebarTab     = 1;
-                    focusModelPath = true;
+                    exportSelectionOnly = !selections.empty();
+                    showGLBExport = true;
                 }
                 ImGui::EndMenu();
             }
@@ -1827,12 +1897,20 @@ struct Editor
             }
             if (ImGui::BeginMenu(editor::language::text("Add", "添加")))
             {
-                if (ImGui::MenuItem(editor::language::text("Directional light", "方向光")))
-                    action([this] { addSceneObject("light"); });
-                if (ImGui::MenuItem(editor::language::text("Point light", "点光")))
-                    action([this] { addSceneObject("light", "point"); });
-                if (ImGui::MenuItem(editor::language::text("Spot light", "聚光灯")))
-                    action([this] { addSceneObject("light", "spot"); });
+                if (ImGui::BeginMenu(editor::language::text("Lights", "灯光")))
+                {
+                    if (ImGui::MenuItem(editor::language::text("Directional light", "方向光")))
+                        action([this] { addSceneObject("light"); });
+                    if (ImGui::MenuItem(editor::language::text("Point light", "点光")))
+                        action([this] { addSceneObject("light", "point"); });
+                    if (ImGui::MenuItem(editor::language::text("Spot light", "聚光灯")))
+                        action([this] { addSceneObject("light", "spot"); });
+                    if (ImGui::MenuItem(editor::language::text("Showcase lighting", "展示灯光")))
+                        action([this] { addShowcaseLights(); });
+                    if (ImGui::MenuItem(editor::language::text("Rectangle light", "矩形面光")))
+                        action([this] { addSceneObject("light", "rectangle"); });
+                    ImGui::EndMenu();
+                }
                 if (ImGui::MenuItem(editor::language::text("Camera", "相机")))
                     action([this] { addSceneObject("camera"); });
 
@@ -1864,6 +1942,16 @@ struct Editor
                       mainPreview || !editor::primaryCamera(history.scene).empty()))
                     action([this] { toggleMainPreview(); });
 
+                if (ImGui::BeginMenu(editor::language::text("Render mode", "渲染模式"), !tools.drag))
+                {
+                    for (const auto& [mode, label] : {
+                           std::pair{render::RenderMode::Raster, editor::language::text("Raster", "光栅")},
+                           std::pair{render::RenderMode::Hybrid, "Hybrid"},
+                           std::pair{render::RenderMode::RayTracing, editor::language::text("Ray tracing", "光追")}})
+                        if (ImGui::MenuItem(label, nullptr, renderMode == mode))
+                            action([this, chosenMode = mode] { setRenderMode(chosenMode); });
+                    ImGui::EndMenu();
+                }
                 if (ImGui::MenuItem("World coordinates", "X", tools.space == editor::TransformSpace::World))
                 {
                     tools.cancel(history);
@@ -1878,6 +1966,7 @@ struct Editor
                     action([this] {
                         auto c         = window->GetCamera();
                         c.orthographic = !c.orthographic;
+                        cameraFocus.reset();
                         window->SetCamera(c);
                     });
                 if (ImGui::MenuItem(editor::language::text("Assets", "资源库"), nullptr, assetsOpen))
@@ -1895,6 +1984,7 @@ struct Editor
                         c.pitch        = 20;
                         c.target       = {0, 0, 0};
                         c.orthographic = false;
+                        cameraFocus.reset();
                         window->SetCamera(c);
                     });
                 ImGui::EndMenu();
@@ -2408,7 +2498,7 @@ struct Editor
               }
           },
           [this](const std::string& error) { status = error; },
-          [this](editor::OrbitCamera camera) { action([this, camera] { window->SetCamera(camera); }); });
+          [this](editor::OrbitCamera camera) { action([this, camera] { cameraFocus.reset(); window->SetCamera(camera); }); });
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {5, 4});
         panel("##ViewportOptions", {189, top + 6}, {46, 34}, false);
         ImGui::BeginDisabled(tools.drag.has_value());
@@ -2429,6 +2519,7 @@ struct Editor
                     }
                     auto c         = window->GetCamera();
                     c.orthographic = !c.orthographic;
+                    cameraFocus.reset();
                     window->SetCamera(c);
                 });
             int modeIndex = static_cast<int>(renderMode);
@@ -2517,8 +2608,11 @@ struct Editor
         if (!helperFile)
             throw std::runtime_error("Missing viewport helper resources");
         auto helpers = editor::Json::parse(helperFile);
+        const auto proceduralGrid = window->GetViewportGrid().enabled;
         for (const auto& helper : helpers)
         {
+            if (proceduralGrid && helper["name"] == "grid")
+                continue;
             std::string id   = "__nova_viewport_" + helper["name"].get<std::string>();
             auto        used = [&] {
                 for (const auto& a : assets)
@@ -2554,7 +2648,7 @@ struct Editor
         {
             auto id = pendingFocus;
             pendingFocus.clear();
-            frame(id == "*" ? "" : id);
+            frame(id == "*" ? "" : id, id != "*");
         }
         previewAssets = std::move(assets);
         authoredInstances = std::move(instances);
@@ -2613,8 +2707,9 @@ struct Editor
         });
         status = "Dropped onto model or ground";
     }
-    void frame(const std::string& id)
+    void frame(const std::string& id, bool ease = true)
     {
+        cameraFocus.reset();
         auto           c      = window->GetCamera();
         editor::Camera camera = editor::navigationCamera(c);
         auto           box    = editor::sceneBounds(history.scene, assetBounds, id);
@@ -2646,14 +2741,39 @@ struct Editor
                 }
             }
         }
-        auto next  = editor::frameBounds(camera, box, {viewportRect[2], viewportRect[3]});
-        c.distance = float(next.distance);
-        for (int k = 0; k < 3; k++)
-            c.target[k] = float(next.target[k]);
-        window->SetCamera(c);
+        auto next = editor::frameBounds(camera, box, {viewportRect[2], viewportRect[3]});
+        auto destination = c;
+        destination.distance = float(next.distance);
+        for (int k = 0; k < 3; ++k)
+            destination.target[k] = float(next.target[k]);
+        if (ease && (c.distance != destination.distance || c.target != destination.target))
+            cameraFocus = CameraFocus{c, destination, editorClockSeconds()};
+        else
+            window->SetCamera(destination);
     }
+
+    void advanceCameraFocus(double now)
+    {
+        if (!cameraFocus) return;
+        const auto& focus = *cameraFocus;
+        const auto elapsed = std::clamp((now - focus.started) / .28, 0., 1.);
+        const auto eased = float(elapsed * elapsed * (3 - 2 * elapsed));
+        auto camera = focus.to;
+        if (elapsed < 1.)
+        {
+            camera.distance = focus.from.distance + (camera.distance - focus.from.distance) * eased;
+            for (size_t axis = 0; axis < camera.target.size(); ++axis)
+                camera.target[axis] = focus.from.target[axis] + (camera.target[axis] - focus.from.target[axis]) * eased;
+        }
+        window->SetCamera(camera);
+        if (elapsed == 1.) cameraFocus.reset();
+    }
+
     void flush()
     {
+#ifdef NOVA_EDITOR_WINDOW_HOST_CONTROLS
+        finishFileChoice();
+#endif
         auto actions = std::move(pending);
         pending.clear();
         for (auto& fn : actions)
@@ -2766,6 +2886,15 @@ int main(int argc, char** argv)
         config.renderer.api = api;
         editor::RenderWindow window(config);
         editor.window = &window;
+        window.SetAntiAliasing({render::AAMethod::SMAA});
+        if (window.GetRasterCapabilities().deferred)
+        {
+            render::ViewportGridSettings grid;
+            grid.enabled = true;
+            grid.elevation = -.012f;
+            grid.majorSpacing = 5.f;
+            window.SetViewportGrid(grid);
+        }
         window.SetClearColor({.6f, .6f, .6f, 1});
         window.SetLighting(render::LightingMode::PBR);
         window.SetDirectionalLight(editor.studio.light());
@@ -2809,8 +2938,10 @@ int main(int argc, char** argv)
                 break;
             const double now = editorClockSeconds();
             const auto delta = static_cast<float>(std::clamp(now - lastFrame, 0.0, 0.1));
+            editor.advanceCameraFocus(now);
             editor.advanceScenePreview(delta);
             editor.advanceAnimations(delta);
+            editor.syncOutlines();
             lastFrame = now;
             if (window.DrawFrame() == render::FrameResult::Rendered)
             {

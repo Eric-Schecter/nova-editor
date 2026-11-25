@@ -49,6 +49,8 @@ export function SceneObjectProperties({
               range: 10,
               innerConeAngle: 0.35,
               outerConeAngle: 0.6,
+              width: 1,
+              height: 1,
               ...node.light!,
             },
       ),
@@ -149,10 +151,19 @@ export function SceneObjectProperties({
               <option value="directional">{tr("Directional light", "方向光")}</option>
               <option value="point">{tr("Point light", "点光")}</option>
               <option value="spot">{tr("Spotlight", "聚光")}</option>
+              <option value="rectangle">{tr("Rectangle light", "矩形面光")}</option>
             </select>
           </label>
           {(component as LightComponent).type !== "directional" &&
             number(tr("Range (0 means unlimited)", "灯光范围（0 为无限）"), "range", 0, 1e7)}
+          {(component as LightComponent).type === "rectangle" && <>
+            {number(tr("Emitter width", "灯面宽度"), "width", .0001, 10000)}
+            {number(tr("Emitter height", "灯面高度"), "height", .0001, 10000)}
+            <label className="asset-property-field">{tr("Local roll", "局部滚转角")}
+              <input type="number" value={Number(roll.toFixed(4))}
+                onChange={(e) => setRoll(Number(e.target.value))} />
+            </label>
+          </>}
           {(component as LightComponent).type === "spot" &&
             ["innerConeAngle", "outerConeAngle"].map((field, i) => (
               <label key={field} className="asset-property-field">
@@ -191,8 +202,8 @@ export function SceneObjectProperties({
               checked={(component as LightComponent).shadows}
               onChange={(e) => change("shadows", e.target.checked)}
             />{" "}{tr("Shadows", "阴影")}</label>
-          {number(tr("Shadow softness", "节点阴影柔和度"), "softness", 0, 4, 0.1, false)}
-          <small>{tr("Per-light shadows support static opaque scenes. Point and spot softness is in world units.", "三类灯均支持逐灯阴影。点光和聚光柔和度使用世界单位光源圆盘；仅静态不透明场景。")}</small>
+          {(component as LightComponent).type !== "rectangle" && number(tr("Shadow softness", "节点阴影柔和度"), "softness", 0, 4, 0.1, false)}
+          <small>{tr("Per-light shadows support static opaque scenes. Rectangle size controls soft shadows.", "静态不透明场景支持逐灯阴影。矩形面光的尺寸控制阴影柔和程度。")}</small>
         </>
       )}
       <button onClick={() => onApply(component, yaw, pitch, roll)}>{tr("Apply node settings", "应用节点设置")}</button>

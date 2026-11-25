@@ -39,6 +39,8 @@ namespace editor
         bool                          gridSnap = true, placementCancelled = false;
         bool                          moveSnap = false;
         std::string                   lightAimId;
+        std::string                   hoveredId;
+        double                        nextHoverPick = 0.;
         inline static constexpr double gridSteps[]{.1, .25, .5, 1, 2, 5};
         int                           gridIndex = 3;
         std::optional<Drag>           drag;
@@ -357,6 +359,50 @@ namespace editor
                     cameraChange(next);
                 }
             }
+            auto targetAt = [&]() -> std::string {
+                auto        ray = rayAt(mouse, c, full);
+                render::Ray request;
+                for (int i = 0; i < 3; ++i)
+                {
+                    request.origin[i]    = float(ray.origin[i]);
+                    request.direction[i] = float(ray.direction[i]);
+                }
+                for (const auto& n : h.scene["nodes"])
+                {
+                    auto id = n["id"].get<std::string>();
+                    if (
+                      n.contains("assetId") && !inheritedFlag(h.scene, id, "locked")
+                      && !inheritedFlag(h.scene, id, "hidden"))
+                        request.includeIds.push_back(id);
+                }
+                auto hit =
+                  request.includeIds.empty() ? std::optional<render::SceneHit>{} : window.PickScene(request);
+                bool visible =
+                  hit && project({hit->position[0], hit->position[1], hit->position[2]}, c, full).has_value();
+                bool userNode = false;
+                if (visible)
+                    for (const auto& n : h.scene["nodes"])
+                        if (n["id"] == hit->id)
+                            userNode = true;
+                std::string helper;
+                double      nearest = 18;
+                for (const auto& glyph : sceneGlyphs(h.scene, full.width / full.height))
+                    if (!inheritedFlag(h.scene, glyph.id, "locked"))
+                    {
+                        auto p = project(glyph.position, c, full);
+                        if (p)
+                        {
+                            double d = screenLength(*p, mouse);
+                            if (d < nearest)
+                            {
+                                nearest = d;
+                                helper  = glyph.id;
+                            }
+                        }
+                    }
+                return !helper.empty() ? helper : visible && userNode ? hit->id : std::string{};
+            };
+            const auto handle = g ? hitGizmo(*g, mouse) : std::optional<int>{};
             const bool click = hovered && !orbit && !drag && !io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
             if (hovered && !lightAimId.empty()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
             if (click && !lightAimId.empty())
@@ -379,7 +425,6 @@ namespace editor
             }
             else if (click)
             {
-                auto handle = g ? hitGizmo(*g, mouse) : std::optional<int>{};
                 if (handle)
                 {
                     auto next = beginDrag(*g, *handle, mouse);
@@ -395,51 +440,7 @@ namespace editor
                 }
                 else
                 {
-                    auto        ray = rayAt(mouse, c, full);
-                    render::Ray request;
-                    for (int i = 0; i < 3; ++i)
-                    {
-                        request.origin[i]    = float(ray.origin[i]);
-                        request.direction[i] = float(ray.direction[i]);
-                    }
-                    for (const auto& n : h.scene["nodes"])
-                    {
-                        auto id = n["id"].get<std::string>();
-                        if (
-                          n.contains("assetId") && !inheritedFlag(h.scene, id, "locked")
-                          && !inheritedFlag(h.scene, id, "hidden"))
-                            request.includeIds.push_back(id);
-                    }
-                    auto hit =
-                      request.includeIds.empty() ? std::optional<render::SceneHit>{} : window.PickScene(request);
-                    bool visible =
-                      hit && project({hit->position[0], hit->position[1], hit->position[2]}, c, full).has_value();
-                    bool userNode = false;
-                    if (visible)
-                        for (const auto& n : h.scene["nodes"])
-                            if (n["id"] == hit->id)
-                                userNode = true;
-                    std::string helper;
-                    double      nearest = 12;
-                    for (const auto& glyph : sceneGlyphs(h.scene, full.width / full.height))
-                        if (!inheritedFlag(h.scene, glyph.id, "locked"))
-                        {
-                            auto p = project(glyph.position, c, full);
-                            if (p)
-                            {
-                                double d = screenLength(*p, mouse);
-                                if (d < nearest)
-                                {
-                                    nearest = d;
-                                    helper  = glyph.id;
-                                }
-                            }
-                        }
-                    select(
-                      !helper.empty()       ? helper
-                      : visible && userNode ? hit->id
-                                            : "",
-                      io.KeyCtrl || io.KeySuper || io.KeyShift);
+                    select(targetAt(), io.KeyCtrl || io.KeySuper || io.KeyShift);
                 }
             }
             if (drag)
@@ -473,53 +474,85 @@ namespace editor
                 next.distance = std::clamp(float(camera.distance * std::exp(-io.MouseWheel * .12)), .05f, 100.f);
                 cameraChange(next);
             }
+            const bool canHover = hovered && !drag && !orbit && !handle && !panTool && !assetDragging
+                                  && !io.KeyAlt && lightAimId.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            if (!canHover)
+            {
+                hoveredId.clear();
+                nextHoverPick = 0.;
+            }
+            else if (io.MouseDelta.x || io.MouseDelta.y || ImGui::GetTime() >= nextHoverPick)
+            {
+                hoveredId = targetAt();
+                nextHoverPick = ImGui::GetTime() + ((io.MouseDelta.x || io.MouseDelta.y) ? 1. / 60. : .15);
+            }
             auto* painter = ImGui::GetWindowDrawList();
             for (const auto& glyph : sceneGlyphs(h.scene, full.width / full.height))
             {
                 bool chosen = std::find(selections.begin(), selections.end(), glyph.id) != selections.end();
                 auto color  = chosen         ? IM_COL32(240, 197, 90, 255)
-                              : glyph.camera ? IM_COL32(99, 150, 213, 255)
-                                             : IM_COL32(183, 156, 82, 255);
-                if (chosen) for (const auto& [a, b] : glyph.lines)
+                              : glyph.id == hoveredId ? IM_COL32(133, 234, 255, 255)
+                              : glyph.camera ? IM_COL32(158, 213, 255, 255)
+                                             : IM_COL32(255, 207, 88, 255);
+                const bool showRange = chosen || (glyph.id == hoveredId &&
+                  (glyph.lightType == "spot" || glyph.lightType == "point"));
+                if (showRange) for (const auto& [a, b] : glyph.lines)
                 {
                     auto pa = project(a, c, full), pb = project(b, c, full);
                     if (pa && pb)
-                        painter->AddLine(screen(*pa), screen(*pb), color, 1.5f);
+                        painter->AddLine(screen(*pa), screen(*pb),
+                          color, chosen ? 2.5f : 1.8f);
                 }
                 auto p = project(glyph.position, c, full);
                 if (p)
                 {
-                    painter->AddCircleFilled(screen(*p), chosen ? 5 : 3, color);
-                    if (chosen) painter->AddText(
-                      {screen(*p).x + 10, screen(*p).y - 18},
-                      color,
-                      glyph.camera ? (glyph.active ? "Camera *" : "Camera") : (glyph.active ? "Light *" : "Light"));
-                }
-            }
-            const auto outlined = subtreeIds(h.scene, selections);
-            const auto worlds   = worldMatrices(h.scene);
-            for (const auto& node : h.scene["nodes"])
-            {
-                auto id = node["id"].get<std::string>();
-                if (!outlined.count(id) || !node.contains("assetId") || inheritedFlag(h.scene, id, "hidden"))
-                    continue;
-                auto found = bounds.find(node["assetId"].get<std::string>());
-                if (found == bounds.end())
-                    continue;
-                for (int bits = 0; bits < 8; bits++)
-                    for (int k = 0; k < 3; k++)
-                        if (!(bits & (1 << k)))
+                    const auto center = screen(*p);
+                    {
+                        const auto at = [&](float x, float y) { return ImVec2{center.x + x * 1.65f, center.y + y * 1.65f}; };
+                        const auto stroke = [&](std::initializer_list<ImVec2> points, bool closed = false) {
+                            painter->AddPolyline(points.begin(), static_cast<int>(points.size()), color,
+                              closed ? ImDrawFlags_Closed : ImDrawFlags_None, 2.5f);
+                        };
+                        if (glyph.camera)
                         {
-                            V3 a;
-                            for (int j = 0; j < 3; j++)
-                                a[j] = (bits & (1 << j)) ? found->second.maximum[j] : found->second.minimum[j];
-                            auto b  = a;
-                            b[k]    = found->second.maximum[k];
-                            auto pa = project(point(worlds.at(id), a), c, full),
-                                 pb = project(point(worlds.at(id), b), c, full);
-                            if (pa && pb)
-                                painter->AddLine(screen(*pa), screen(*pb), IM_COL32(240, 197, 90, 135), 1.2f);
+                            painter->AddRect(at(-8, -5), at(3, 5), color, 0.f, ImDrawFlags_None, 2.5f);
+                            stroke({at(3,-2), at(8,-5), at(8,5), at(3,2)});
                         }
+                        else if (glyph.lightType == "spot")
+                        {
+                            stroke({at(-6,-5), at(0,-5), at(5,-8), at(5,5), at(0,2), at(-6,2)}, true);
+                            stroke({at(2,7), at(5,9)});
+                            stroke({at(7,0), at(9,0)});
+                        }
+                        else if (glyph.lightType == "rectangle")
+                        {
+                            painter->AddRect(at(-7,-5), at(7,5), color, 0.f, ImDrawFlags_None, 2.f);
+                            painter->AddRect(at(-4,-2), at(4,2), color, 0.f, ImDrawFlags_None, 2.f);
+                        }
+                        else if (glyph.lightType == "point")
+                        {
+                            stroke({at(-3,3), at(-5,0), at(-5,-3), at(-3,-6), at(0,-7), at(3,-6),
+                              at(5,-3), at(5,0), at(3,3), at(3,7), at(-3,7)}, true);
+                            stroke({at(-2,9), at(2,9)});
+                        }
+                        else
+                        {
+                            painter->AddCircle(center, 5.8f, color, 16, 2.5f);
+                            for (int i = 0; i < 8; ++i)
+                            {
+                                const float angle = i * .78539816f;
+                                const float x = std::cos(angle), y = std::sin(angle);
+                                stroke({at(6*x,6*y), at(8*x,8*y)});
+                            }
+                        }
+                    }
+                    if (chosen || glyph.camera)
+                    {
+                        const auto label = glyph.camera && glyph.active ? glyph.name + " · Main" : glyph.name;
+                        painter->AddText({center.x + 20, center.y - 11}, IM_COL32(28, 32, 37, 255), label.c_str());
+                        painter->AddText({center.x + 19, center.y - 12}, color, label.c_str());
+                    }
+                }
             }
             selectionGeometry = selectOnly ? std::nullopt : selectionGizmo(h.scene, selections, selected, space, mode, c, full, bounds);
             g                 = selectionGeometry ? std::optional<Gizmo>(selectionGeometry->gizmo) : std::nullopt;

@@ -22,6 +22,18 @@ int main(int argc, char** argv)
             if (l.type != render::LightType::Point)
                 require(std::abs(l.direction[0] - (l.type == render::LightType::Spot ? -1 : 1)) < 1e-5, "direction");
         }
+        auto rectangles = s;
+        rectangles["schemaVersion"] = 7;
+        auto softbox = editor::createLight("softbox", "rectangle");
+        softbox["transform"] = editor::identity();
+        softbox["light"]["width"] = 6;
+        softbox["light"]["height"] = 5;
+        softbox["light"]["active"] = true;
+        rectangles["nodes"].push_back(softbox);
+        editor::validate(rectangles);
+        const auto lamp = editor::sceneLights(rectangles).back();
+        require(lamp.type == render::LightType::Rectangle && lamp.width == 6 && lamp.height == 5, "rectangle dimensions");
+        require(lamp.direction[2] == -1 && lamp.up[1] == 1 && lamp.castShadow, "rectangle frame");
         auto glyphs = editor::sceneGlyphs(s);
         require(glyphs[2].lines.size() > 90 && glyphs[4].lines.size() > 70, "range/cone helpers");
         editor::setPrimary(s, lights[0].id, "light", false);
@@ -37,6 +49,8 @@ int main(int argc, char** argv)
         require(h.scene == edited, "redo");
         auto folder = root / "output/lights-contract";
         std::filesystem::create_directories(folder);
+        editor::saveProject(folder / "rectangle-project.json", rectangles, folder);
+        require(editor::read(folder / "rectangle-project.json") == rectangles, "rectangle project round trip");
         editor::saveProject(folder / "project.json", edited, folder);
         require(editor::read(folder / "project.json") == edited, "save reopen");
         editor::saveRecovery(folder / "recovery", edited, s, folder / "project.json", folder);

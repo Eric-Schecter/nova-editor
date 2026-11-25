@@ -72,7 +72,8 @@ namespace editor
           {"name",
            type == "directional" ? "Directional light"
            : type == "point"     ? "Point light"
-                                 : "Spot light"},
+           : type == "spot"      ? "Spot light"
+                                 : "Rectangle light"},
           {"transform",
            viewTransform(
              {std::atan2(-1., 2.) * 180 / 3.141592653589793,
@@ -80,12 +81,14 @@ namespace editor
               5})},
           {"light",
            {{"type", type},
-            {"range", 10},
+            {"range", type == "rectangle" ? 0 : 10},
+            {"width", 1},
+            {"height", 1},
             {"innerConeAngle", .35},
             {"outerConeAngle", .6},
             {"color", {1, 1, 1}},
-            {"intensity", 3.5},
-            {"shadows", type == "directional"},
+            {"intensity", type == "point" || type == "spot" ? 35. : 3.5},
+            {"shadows", true},
             {"softness", 1},
             {"active", false}}}};
     }
@@ -163,12 +166,15 @@ namespace editor
                 v.id             = id;
                 v.type           = l["type"] == "point"  ? render::LightType::Point
                                    : l["type"] == "spot" ? render::LightType::Spot
+                                   : l["type"] == "rectangle" ? render::LightType::Rectangle
                                                          : render::LightType::Directional;
                 v.enabled        = l["active"].get<bool>() && !inheritedFlag(scene, id, "hidden");
                 v.intensity      = l["intensity"];
                 v.range          = l.value("range", 0.f);
                 v.innerConeAngle = l.value("innerConeAngle", .35f);
                 v.outerConeAngle = l.value("outerConeAngle", .6f);
+                v.width = l.value("width", 1.f);
+                v.height = l.value("height", 1.f);
                 v.castShadow     = l["shadows"].get<bool>();
                 v.shadowSoftness = l["softness"];
                 auto d           = unit({m[8], m[9], m[10]});
@@ -176,7 +182,8 @@ namespace editor
                 {
                     v.color[k]     = l["color"][k];
                     v.position[k]  = float(m[12 + k]);
-                    v.direction[k] = float(d[k] * (v.type == render::LightType::Spot ? -1 : 1));
+                    v.direction[k] = float(d[k] * (v.type == render::LightType::Spot || v.type == render::LightType::Rectangle ? -1 : 1));
+                    v.up[k] = m[4 + k];
                 }
                 lights.push_back(v);
             }
@@ -316,6 +323,7 @@ namespace editor
     {
         std::string                    id;
         bool                           camera = false, active = false;
+        std::string                    lightType, name;
         V3                             position;
         std::vector<std::pair<V3, V3>> lines;
     };
@@ -330,6 +338,7 @@ namespace editor
             auto       m = objectFrame(scene, id);
             SceneGlyph g;
             g.id       = id;
+            g.name     = n.value("name", id);
             g.camera   = n.contains("camera");
             g.active   = g.camera ? n["camera"]["primary"].get<bool>() : n["light"]["active"].get<bool>();
             g.position = pivot(m);
@@ -361,6 +370,7 @@ namespace editor
                     local.push_back({a, b});
                 }
                 const auto& light  = n["light"];
+                g.lightType = light.value("type", "directional");
                 double      radius = light.value("range", 0.);
                 if (radius > 0 && light["type"] == "point")
                     for (int axis = 0; axis < 3; axis++)
@@ -375,6 +385,13 @@ namespace editor
                             local.push_back(
                               {pointAt(i * 3.141592653589793 / 16), pointAt((i + 1) * 3.141592653589793 / 16)});
                         }
+                if (light["type"] == "rectangle")
+                {
+                    const double x = light.value("width", 1.) / 2, y = light.value("height", 1.) / 2;
+                    const std::array<V3, 4> corners{{{-x, -y, 0}, {x, -y, 0}, {x, y, 0}, {-x, y, 0}}};
+                    for (size_t i = 0; i < corners.size(); ++i)
+                        local.push_back({corners[i], corners[(i + 1) % corners.size()]});
+                }
                 if (light["type"] == "spot")
                     for (double angle : {light.value("innerConeAngle", .35), light.value("outerConeAngle", .6)})
                     {

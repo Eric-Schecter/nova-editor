@@ -12,7 +12,9 @@ try {
     console.log(
       `Locked: ${result.current ?? "none"}; latest compatible published release: ${result.latest ?? "none"}. No files changed.`,
     );
-    if (result.latest && result.latest !== result.current)
+    const [currentMinor, currentPatch] = (result.current ?? "0.0.0").split(".").slice(1).map(Number);
+    const [latestMinor, latestPatch] = (result.latest ?? "0.0.0").split(".").slice(1).map(Number);
+    if (latestMinor > currentMinor || (latestMinor === currentMinor && latestPatch > currentPatch))
       console.log(
         `Review package/platform support, then run: pnpm sdk:update ${result.latest}`,
       );

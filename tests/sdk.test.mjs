@@ -271,12 +271,15 @@ test("Release discovery verifies manifest/asset digests and checking never insta
           new Response(
             JSON.stringify([
               data,
-              { ...data, tag_name: "v0.9.0" },
+              { ...data, tag_name: "v0.9.99" },
+              { ...data, tag_name: "v0.10.9" },
+              { ...data, tag_name: "v0.10.27" },
+              { ...data, tag_name: "v0.11.0" },
               { ...data, tag_name: "v0.8.9", prerelease: true },
             ]),
           ),
       });
-    assert.equal(result.latest, "0.8.0");
+    assert.equal(result.latest, "0.10.27");
     assert.deepEqual(await readdir(root), before);
   }));
 test("SDK archive guard rejects traversal and symlinks before extracting", () => {

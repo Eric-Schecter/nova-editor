@@ -252,7 +252,7 @@ namespace editor::assets
                          {"znear", c.value("nearPlane", .01)},
                          {"zfar", c.value("farPlane", 200.)}}}});
             }
-            if (n.contains("light"))
+            if (n.contains("light") && n["light"]["type"] != "rectangle")
             {
                 auto l = n["light"];
                 used.insert("KHR_lights_punctual");

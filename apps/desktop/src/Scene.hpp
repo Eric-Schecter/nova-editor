@@ -196,7 +196,7 @@ namespace editor
                 const auto& l = n["light"];
                 if (
                   !l.is_object()
-                  || (l.at("type") != "directional" && (s["schemaVersion"].get<int>() < 6 || (l.at("type") != "point" && l.at("type") != "spot")))
+                  || (l.at("type") != "directional" && (s["schemaVersion"].get<int>() < 6 || (l.at("type") != "point" && l.at("type") != "spot" && l.at("type") != "rectangle")))
                   || !l.at("color").is_array() || l["color"].size() != 3 || !range(l.at("intensity"), 0, 100)
                   || !range(l.at("softness"), 0, 4) || !l.at("shadows").is_boolean() || !l.at("active").is_boolean())
                     throw std::runtime_error("Invalid light component");
@@ -204,6 +204,10 @@ namespace editor
                   l["type"] != "directional"
                   && (!range(l.at("range"), 0, 1e7) || (s["schemaVersion"].get<int>() < 7 && l["shadows"] != false)))
                     throw std::runtime_error("Invalid range or point/spot shadows require scene format 7");
+                if (l["type"] == "rectangle"
+                    && (s["schemaVersion"].get<int>() < 7 || !range(l.at("width"), .0001, 1e4)
+                        || !range(l.at("height"), .0001, 1e4)))
+                    throw std::runtime_error("Invalid rectangle dimensions");
                 if(l["type"] == "spot" && (!range(l.at("innerConeAngle"),0,1.5707963267948966) || !range(l.at("outerConeAngle"),0,1.5707963267948966) || l["innerConeAngle"].get<double>() > l["outerConeAngle"].get<double>() || l["outerConeAngle"].get<double>() >= 1.5707963267948966))
                     throw std::runtime_error("Invalid spot cone angles");
                 for (const auto& v : l["color"])

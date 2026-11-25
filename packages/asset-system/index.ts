@@ -431,6 +431,18 @@ export const textureSlots = [
   { key: "metallicRoughness", label: "金属度 / 粗糙度贴图" },
   { key: "occlusion", label: "遮蔽贴图" },
   { key: "emissive", label: "自发光贴图" },
+  { key: "clearcoat", label: "清漆贴图", extension: "KHR_materials_clearcoat" },
+  { key: "clearcoatRoughness", label: "清漆粗糙度贴图", extension: "KHR_materials_clearcoat" },
+  { key: "clearcoatNormal", label: "清漆法线贴图", extension: "KHR_materials_clearcoat" },
+  { key: "specular", label: "镜面反射贴图", extension: "KHR_materials_specular" },
+  { key: "specularColor", label: "镜面反射颜色贴图", extension: "KHR_materials_specular" },
+  { key: "sheenColor", label: "织物光泽颜色贴图", extension: "KHR_materials_sheen" },
+  { key: "sheenRoughness", label: "织物光泽粗糙度贴图", extension: "KHR_materials_sheen" },
+  { key: "iridescence", label: "虹彩贴图", extension: "KHR_materials_iridescence" },
+  { key: "iridescenceThickness", label: "虹彩厚度贴图", extension: "KHR_materials_iridescence" },
+  { key: "anisotropy", label: "各向异性贴图", extension: "KHR_materials_anisotropy" },
+  { key: "transmission", label: "透射贴图", extension: "KHR_materials_transmission" },
+  { key: "thickness", label: "体积厚度贴图", extension: "KHR_materials_volume" },
 ] as const;
 export type TextureSlot = (typeof textureSlots)[number]["key"];
 function materials(doc: GLB): any[] {
@@ -500,15 +512,36 @@ export function applyMaterial(doc: GLB, value: Material): GLB {
   return next;
 }
 function textureParent(m: any, slot: TextureSlot): [any, string] {
-  if (slot === "baseColor" || slot === "metallicRoughness") {
-    m.pbrMetallicRoughness ??= {};
-    return [m.pbrMetallicRoughness, slot + "Texture"];
-  }
-  return [m, slot + "Texture"];
+  const definition = textureSlots.find((item) => item.key === slot);
+  const parent = definition && "extension" in definition
+    ? m.extensions?.[definition.extension]
+    : slot === "baseColor" || slot === "metallicRoughness"
+      ? m.pbrMetallicRoughness : m;
+  return [parent, slot + "Texture"];
 }
 export function hasTexture(doc: GLB, slot: TextureSlot) {
   const [p, k] = textureParent(materials(doc)[0], slot);
-  return !!p[k];
+  return !!p?.[k];
+}
+export function materialUsesExtension(doc: GLB, extension: string) {
+  return materials(doc).some((material) => Object.hasOwn(material.extensions ?? {}, extension));
+}
+export function materialTextureImage(doc: GLB, slot: TextureSlot) {
+  const [parent, key] = textureParent(materials(doc)[0], slot);
+  const texture = doc.json.textures?.[parent?.[key]?.index];
+  const image = doc.json.images?.[texture?.extensions?.EXT_texture_webp?.source ??
+    texture?.source ?? texture?.extensions?.KHR_texture_basisu?.source];
+  const view = doc.json.bufferViews?.[image?.bufferView];
+  if (typeof image?.uri === "string" && !view) {
+    const embedded = /^data:(image\/(?:png|jpeg|webp));base64,([\s\S]+)$/.exec(image.uri);
+    if (embedded) return {
+      bytes: Uint8Array.from(atob(embedded[2]), (character) => character.charCodeAt(0)),
+      mimeType: embedded[1],
+    };
+  }
+  if (!view || (view.buffer ?? 0) !== 0 || !image.mimeType) return null;
+  const offset = view.byteOffset ?? 0;
+  return { bytes: doc.bin.slice(offset, offset + view.byteLength), mimeType: image.mimeType };
 }
 export function imageType(bytes: Uint8Array): string {
   if (bytes.length < 4 || bytes.length > 16 * 1024 * 1024)
@@ -538,9 +571,16 @@ export function applyTexture(
   let index: number | undefined;
   if (bytes) {
     for (const mesh of next.json.meshes ?? [])
-      for (const p of mesh.primitives ?? [])
-        if (p.attributes?.TEXCOORD_0 === undefined)
-          throw Error("模型缺少 UV，无法添加贴图");
+      for (const primitive of mesh.primitives ?? []) {
+        const material = next.json.materials?.[primitive.material];
+        if (!material) continue;
+        const [parent, key] = textureParent(material, slot);
+        if (!parent && slot !== "baseColor" && slot !== "metallicRoughness") continue;
+        const info = parent?.[key];
+        const uv = info?.extensions?.KHR_texture_transform?.texCoord ?? info?.texCoord ?? 0;
+        if (primitive.attributes?.[`TEXCOORD_${uv}`] === undefined)
+          throw Error(`模型缺少 TEXCOORD_${uv}，无法添加贴图`);
+      }
     const mimeType = imageType(bytes),
       offset = appendBin(next, bytes);
     next.json.bufferViews ??= [];
@@ -556,9 +596,17 @@ export function applyTexture(
     index = next.json.textures.push({ source: image }) - 1;
   }
   for (const m of materials(next)) {
+    if (index !== undefined && (slot === "baseColor" || slot === "metallicRoughness"))
+      m.pbrMetallicRoughness ??= {};
     const [p, k] = textureParent(m, slot);
+    if (!p) continue;
     if (index === undefined) delete p[k];
-    else p[k] = { ...(p[k] ?? {}), index, texCoord: 0 };
+    else {
+      const sampler = next.json.textures[p[k]?.index]?.sampler;
+      const textureIndex = sampler === undefined ? index :
+        next.json.textures.push({ ...next.json.textures[index], sampler }) - 1;
+      p[k] = { ...p[k], index: textureIndex };
+    }
   }
   return next;
 }

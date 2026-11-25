@@ -328,21 +328,61 @@
 .recovery-banner {
   position: absolute;
   z-index: 50;
-  top: 55px;
-  left: 250px;
-  right: 310px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100% - 24px));
+  padding: 12px;
   background: var(--panel);
   border: 1px solid var(--line);
-  padding: 12px;
-  max-height: 40vh;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 25%);
+}
+.recovery-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 35vh;
   overflow: auto;
 }
-.recovery-banner button {
-  margin-left: 6px;
+.recovery-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  background: var(--field);
+  border-radius: 6px;
 }
+.recovery-project {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.recovery-project strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recovery-project time {
+  font-size: 11px;
+  opacity: .72;
+}
+.recovery-banner .recovery-later, .project-recoveries .recovery-discard {
+  background: transparent;
+  border-color: transparent;
+}
+.project-recoveries .recovery-discard:hover {
+  color: #ff9b9b;
+}
+:root .recovery-restore {
+  background: #365e87;
+  color: #fff;
+  border-color: #527ba3;
+}
+
 
 /* Scene-editor layout: one viewport and one unified inspector sidebar. */
 [hidden] {
@@ -592,11 +632,6 @@ header.menubar {
   border-bottom: 0;
   font-size: 10px;
 }
-.recovery-banner {
-  top: 40px;
-  left: 12px;
-  right: 342px;
-}
 @media (max-width: 1050px) {
   .workspace {
     grid-template-columns: minmax(200px, 1fr) 300px;
@@ -606,9 +641,6 @@ header.menubar {
   }
   .menu-trigger {
     padding: 0 8px;
-  }
-  .recovery-banner {
-    right: 312px;
   }
 }
 .placement-controls {
@@ -692,36 +724,72 @@ header.menubar {
   font-size: 11px;
   margin: 16px 0 12px;
 }
+.material-texture-group {
+  margin-block: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.material-texture-group > summary {
+  padding: 8px;
+  background: var(--field);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
 .texture-property {
-  margin: 14px 0;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 10px;
-}
-.texture-property label {
-  display: block;
-}
-.texture-property input {
-  margin-top: 7px;
-  padding: 5px;
-  font-size: 10px;
-}
-.texture-property > div {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto auto;
   align-items: center;
-  margin-top: 6px;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--line);
 }
-.texture-property small {
+.texture-slot-preview {
+  width: 38px;
+  height: 38px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.texture-slot-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.texture-slot-info strong {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.texture-slot-info small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 190px;
   color: var(--muted);
-}
-.texture-property button {
   font-size: 10px;
-  padding: 3px 6px;
+}
+.texture-slot-picker,
+.texture-property button {
+  padding: 4px 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.texture-slot-picker {
+  position: relative;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.texture-slot-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+}
+.texture-slot-picker:focus-within {
+  outline: 1px solid var(--accent);
 }
 .asset-color-controls {
   display: flex;
@@ -1031,4 +1099,208 @@ header.menubar {
 }
 .transform-row .vector input::-webkit-inner-spin-button {
   appearance: none;
+}
+
+.mobile-drawers {
+  display: none;
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1400px) {
+  .editor {
+    min-width: 0;
+    min-height: 0;
+  }
+  header.menubar {
+    height: 44px;
+    gap: 4px;
+    padding-inline: 8px;
+  }
+  .menubar .menu-save-status {
+    display: none;
+  }
+  :root .menubar .menu-trigger {
+    height: 44px;
+    padding-inline: 9px;
+  }
+  .menubar .menu-popup {
+    position: fixed;
+    top: 44px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    min-width: 0;
+    max-width: min(380px, calc(100vw - 16px));
+    max-height: calc(100dvh - 108px);
+    overflow: auto;
+  }
+  .workspace {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 0;
+  }
+  .workspace > .viewport {
+    width: 100%;
+    min-width: 0;
+  }
+  .workspace > .sidebar,
+  .workspace > .assets {
+    display: none;
+    position: absolute;
+    grid-area: auto;
+    inset: auto 0 calc(48px + env(safe-area-inset-bottom)) 0;
+    z-index: 6;
+    max-height: min(55%, 520px);
+    box-shadow: 0 -8px 26px #0005;
+    border-top: 1px solid var(--line);
+    border-radius: 12px 12px 0 0;
+  }
+  .workspace[data-drawer] > .viewport {
+    position: absolute;
+    grid-area: auto;
+    inset: 0 0 calc(48px + min(55%, 520px) + env(safe-area-inset-bottom)) 0;
+    height: auto;
+  }
+  .workspace[data-drawer="assets"] > .viewport {
+    bottom: calc(193px + env(safe-area-inset-bottom));
+  }
+  .workspace[data-drawer="scene"] > .sidebar,
+  .workspace[data-drawer="properties"] > .sidebar,
+  .workspace[data-drawer="assets"] > .assets {
+    display: flex;
+    flex-direction: column;
+  }
+  .workspace[data-drawer="properties"] .sidebar-tabs,
+  .workspace[data-drawer="properties"] .scene-panel,
+  .workspace[data-drawer="scene"] .inspector {
+    display: none;
+  }
+  .workspace > .sidebar {
+    height: min(55%, 520px);
+  }
+  .sidebar .scene-panel {
+    height: auto;
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    resize: none;
+  }
+  .sidebar .sidebar-scene {
+    overflow: hidden;
+  }
+  .sidebar .inspector {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .sidebar .sidebar-page {
+    overflow: auto;
+  }
+  .mobile-drawers {
+    grid-row: 2;
+    display: flex;
+    background: var(--panel);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -1px 0 var(--line);
+    z-index: 7;
+  }
+  :root .mobile-drawers button {
+    flex: 1;
+    min-height: 48px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  :root .mobile-drawers button[aria-expanded="true"] {
+    background: var(--field);
+    color: var(--text);
+    box-shadow: inset 0 -2px var(--selection-line);
+  }
+  :root .viewport-tools button {
+    min-height: 39px;
+    min-width: 36px;
+  }
+  .editor > footer {
+    display: none;
+  }
+  .view-cube {
+    right: 5px;
+  }
+  .tree-row {
+    min-height: 38px;
+  }
+  .asset-list .asset {
+    touch-action: pan-x;
+  }
+}
+
+@media (max-width: 540px) {
+  .menubar .document-name { display: none; }
+}
+
+.file-dialog {
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  padding: 16px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.file-dialog::backdrop { background: #0008; }
+.file-dialog h2 { margin: 0 0 12px; font-size: 15px; }
+.file-dialog > button { width: 100%; margin-bottom: 6px; }
+.file-dialog label { display: grid; gap: 4px; margin: 0 0 12px; }
+.file-dialog select { min-height: 32px; }
+.file-dialog form { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+.menu-children { padding-left: 12px; }
+
+.viewport-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  background: rgb(22 26 33 / 38%);
+  visibility: hidden;
+  animation: viewport-loading-show 0s 300ms forwards;
+}
+
+.viewport-loading > span {
+  padding: 9px 16px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 6px;
+  background: #272a30;
+  color: #f4f7fb;
+  font-size: 13px;
+}
+
+@keyframes viewport-loading-show {
+  to { visibility: visible; }
+}
+
+
+.recovery-notice-actions {
+  display: flex;
+  gap: 4px;
+}
+.project-recoveries {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.project-recoveries h4 {
+  margin: 0;
+}
+
+
+.material-texture-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }

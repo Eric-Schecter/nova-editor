@@ -62,7 +62,7 @@ export async function installedFiles(root) {
     await hashFiles(root, p, files);
   return files;
 }
-async function extract(file, destination) {
+export async function extract(file, destination) {
   await mkdir(destination, { recursive: true });
   const options = { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 };
   const names = execFileSync("cmake", ["-E", "tar", "tf", file], options),
@@ -198,6 +198,7 @@ export async function installPair(
         manifestSha256: sha256(bytes),
         native: manifest.native,
         web: manifest.web,
+        ...(manifest.nativeTargets ? { nativeTargets: manifest.nativeTargets } : {}),
       },
       files,
     };

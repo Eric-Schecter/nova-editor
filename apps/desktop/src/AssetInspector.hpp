@@ -11,8 +11,8 @@ namespace editor
         std::optional<Json>                   geometry;
         Json                                  material;
         char                                  materialName[256]{};
-        std::array<std::array<char, 1024>, 5> textures{};
-        std::array<bool, 5>                   remove{};
+        std::array<std::array<char, 1024>, assets::textureSlotCount> textures{};
+        std::array<bool, assets::textureSlotCount>                   remove{};
         void                                  load(const std::string& nextKey, const std::filesystem::path& path)
         {
             if (key == nextKey)
@@ -41,7 +41,7 @@ namespace editor
           size_t                                                                            users,
           bool                                                                              disabled,
           const std::function<void(Json)>&                                                  applyGeometry,
-          const std::function<void(Json, std::array<std::string, 5>, std::array<bool, 5>)>& applyMaterial,
+          const std::function<void(Json, std::array<std::string, assets::textureSlotCount>, std::array<bool, assets::textureSlotCount>)>& applyMaterial,
           const std::function<void()>&                                                      unique)
         {
             if (!doc)
@@ -93,6 +93,35 @@ namespace editor
             {
                 ImGui::TextDisabled("%s", editor::language::text("Material", "材质"));
                 ImGui::SetNextItemWidth(-1);
+                if (ImGui::BeginCombo("##MaterialPreset", editor::language::text("Replace with preset", "替换为预设")))
+                {
+                    struct Preset
+                    {
+                        const char* name;
+                        const char* label;
+                        std::array<float, 3> color;
+                        float metallic, roughness;
+                    };
+                    const Preset presets[]{
+                      {"Clay", editor::language::text("Matte clay", "哑光陶土"), {.56f, .24f, .13f}, 0.f, .85f},
+                      {"Plastic", editor::language::text("Blue plastic", "蓝色塑料"), {.06f, .22f, .64f}, 0.f, .33f},
+                      {"Metal", editor::language::text("Silver metal", "银色金属"), {.65f, .68f, .72f}, 1.f, .25f},
+                    };
+                    for (const auto& preset : presets)
+                        if (ImGui::Selectable(preset.label))
+                        {
+                            std::snprintf(materialName, sizeof(materialName), "%s", preset.name);
+                            material = {{"name", preset.name}, {"color", preset.color}, {"opacity", 1},
+                              {"alphaMode", "OPAQUE"}, {"alphaCutoff", .5}, {"doubleSided", false},
+                              {"metallic", preset.metallic}, {"roughness", preset.roughness},
+                              {"emissive", {0, 0, 0}}, {"normalScale", 1}, {"occlusion", 1}};
+                            textures = {};
+                            remove = {};
+                            std::fill_n(remove.begin(), 5, true);
+                        }
+                    ImGui::EndCombo();
+                }
+                ImGui::SetNextItemWidth(-1);
                 ImGui::InputText("##MaterialName", materialName, sizeof(materialName));
                 for (const auto& entry :
                      {std::pair<const char*, const char*>{"color", "Base color"}, {"emissive", "Emissive"}})
@@ -143,16 +172,11 @@ namespace editor
                         material[entry.first] = value;
                 }
                 ImGui::Separator();
-                const char* labels[]{
-                  "Base color texture",
-                  "Normal texture",
-                  "Metal / rough texture",
-                  "Occlusion texture",
-                  "Emissive texture"};
-                for (size_t i = 0; i < 5; i++)
+                for (size_t i = 0; i < assets::textureSlotCount; i++)
                 {
+                    if (!assets::materialUsesTextureSlot(*doc, i)) continue;
                     ImGui::PushID(int(i));
-                    ImGui::TextDisabled("%s", labels[i]);
+                    ImGui::TextDisabled("%s", assets::textureLabels[i]);
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputTextWithHint(
                       "##TexturePath", "PNG / JPEG path", textures[i].data(), textures[i].size());
@@ -170,8 +194,8 @@ namespace editor
                 {
                     auto value    = material;
                     value["name"] = materialName;
-                    std::array<std::string, 5> paths;
-                    for (size_t i = 0; i < 5; i++)
+                    std::array<std::string, assets::textureSlotCount> paths;
+                    for (size_t i = 0; i < paths.size(); i++)
                         paths[i] = textures[i].data();
                     applyMaterial(value, paths, remove);
                 }

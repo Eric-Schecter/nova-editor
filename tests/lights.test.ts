@@ -8,6 +8,7 @@ import {
   setPrimary,
   applyCameraLens,
   createCamera,
+  createLight,
 } from "../packages/editor-core/src/scene-objects";
 import { EditorHistory } from "../packages/editor-core/src/index";
 import {
@@ -104,4 +105,22 @@ test("v7 point and spot shadow flags survive history, archive and independent to
   );
   const legacy = { ...s, schemaVersion: 6 };
   assert.throws(() => validateScene(legacy));
+});
+
+test("rectangle dimensions and outward frame survive a project archive", () => {
+  const scene = fixture();
+  scene.schemaVersion = 7;
+  const node = createLight("softbox", "rectangle");
+  node.transform.rotation = [0, 0, Math.SQRT1_2, Math.SQRT1_2];
+  Object.assign(node.light!, { width: 6, height: 5, active: true });
+  scene.nodes.push(node);
+  const restored = unpackProject(packProject({ scene, assets: {} })).scene;
+  const light = sceneLights(restored).find(lamp => lamp.id === node.id)!;
+  assert.equal(light.type, "rectangle");
+  assert.equal(light.width, 6);
+  assert.equal(light.height, 5);
+  assert.deepEqual(light.direction.map(Math.round).map(x => x || 0), [0, 0, -1]);
+  assert.equal(Math.round(light.up![0]), -1);
+  node.light!.width = 0;
+  assert.throws(() => validateScene(scene), /rectangle dimensions/i);
 });

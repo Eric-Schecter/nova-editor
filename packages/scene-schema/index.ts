@@ -10,7 +10,9 @@ export type CameraComponent = {
   farPlane?: number;
 };
 export type LightComponent = {
-  type: "directional" | "point" | "spot";
+  type: "directional" | "point" | "spot" | "rectangle";
+  width?: number;
+  height?: number;
   range?: number;
   innerConeAngle?: number;
   outerConeAngle?: number;
@@ -178,7 +180,7 @@ export function validateScene(value: unknown): Scene {
         !record(l) ||
         !(
           (value.schemaVersion as number) >= 6
-            ? ["directional", "point", "spot"]
+            ? ["directional", "point", "spot", "rectangle"]
             : ["directional"]
         ).includes(l.type as string) ||
         !Array.isArray(l.color) ||
@@ -198,6 +200,12 @@ export function validateScene(value: unknown): Scene {
         throw Error(
           "Invalid range or point/spot shadows require scene format 7",
         );
+      if (
+        l.type === "rectangle" &&
+        ((value.schemaVersion as number) < 7 ||
+          !range(l.width, 0.0001, 1e4) || !range(l.height, 0.0001, 1e4))
+      )
+        throw Error("Invalid rectangle dimensions");
       if (
         l.type === "spot" &&
         (!range(l.innerConeAngle, 0, Math.PI / 2) ||

@@ -285,18 +285,16 @@ export async function checkUpdates(current, { fetcher = fetch } = {}) {
     ),
   );
   if (!Array.isArray(entries)) throw Error("Invalid release list");
-  const candidates = entries
-    .filter(
-      (r) =>
-        !r.draft &&
-        !r.prerelease &&
-        /^v0\.8\.(0|[1-9]\d*)$/.test(r.tag_name) &&
-        r.assets?.some((a) => a.name === "manifest.json"),
-    )
-    .sort(
-      (a, b) =>
-        Number(b.tag_name.split(".").at(-1)) -
-        Number(a.tag_name.split(".").at(-1)),
-    );
-  return { current, latest: candidates[0]?.tag_name.slice(1) ?? null };
+  const candidates = entries.flatMap((release) => {
+    if (release.draft || release.prerelease ||
+        !release.assets?.some((asset) => asset.name === "manifest.json")) return [];
+    try {
+      const candidate = version(release.tag_name);
+      const [, minor, patch] = candidate.split(".").map(Number);
+      return [{ candidate, minor, patch }];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => b.minor - a.minor || b.patch - a.patch);
+  return { current, latest: candidates[0]?.candidate ?? null };
 }

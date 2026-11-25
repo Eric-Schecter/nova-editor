@@ -17,7 +17,6 @@ import {
 import { cubeFaces } from "../../../packages/editor-core/src/view-cube";
 import React, { useEffect, useRef, useState } from "react";
 import type { Scene, Transform } from "../../../packages/scene-schema/index";
-import { worldMatrices } from "../../../packages/scene-schema/transforms";
 import {
   cameraFrame,
   dot,
@@ -27,7 +26,6 @@ import {
   updateDrag,
   rayAt,
   project,
-  transform,
   type Camera,
   type Mode,
   type Point,
@@ -35,6 +33,7 @@ import {
   type Size,
 } from "../../../packages/editor-core/src/viewport";
 export type ViewportRenderer = {
+  setSceneOutlines: (options: { hoveredId: string; selectedIds: string[] }) => void;
   pickScene: (ray: {
     origin: number[];
     direction: number[];
@@ -81,6 +80,7 @@ export function Viewport(props: Props) {
   const [panTool, setPanTool] = useState(false),
     [size, setSize] = useState<Size>({ width: 1, height: 1 }),
     [hot, setHot] = useState<number | null>(null),
+    [hoveredId, setHoveredId] = useState<string | null>(null),
     [dragging, setDragging] = useState(false);
   useEffect(() => setPanTool(false), [props.tool]);
   const svg = useRef<SVGSVGElement>(null),
@@ -115,6 +115,17 @@ export function Viewport(props: Props) {
         size,
         props.bounds,
       );
+  const touchPoints = useRef(new Map<number, Point>());
+  const touchGesture = useRef<{ camera: Camera; start: Point; span: number; tap: boolean } | null>(null);
+  function resetTouch(camera: Camera, tap = false) {
+    const [a, b] = [...touchPoints.current.values()];
+    touchGesture.current = a ? {
+      camera,
+      start: b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : a,
+      span: b ? Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)) : 0,
+      tap,
+    } : null;
+  }
   const geometry = selectionGeometry?.gizmo ?? null;
   const pointer = (e: React.PointerEvent): Point => {
     const r = svg.current!.getBoundingClientRect();
@@ -125,6 +136,10 @@ export function Viewport(props: Props) {
       svg.current.releasePointerCapture(id);
   }
   function cancel() {
+    const ids = [...touchPoints.current.keys()];
+    touchPoints.current.clear();
+    touchGesture.current = null;
+    for (const id of ids) release(id);
     const active = drag.current;
     drag.current = null;
     orbit.current = null;
@@ -247,7 +262,65 @@ export function Viewport(props: Props) {
     )
       cancel();
   }, [selectionKey, props.space, props.previewing]);
+  function aimAt(p: Point) {
+    if (props.aimLight) {
+      const ray = rayAt(p, props.camera, size);
+      const includeIds = props.scene.nodes
+        .filter(n => n.assetId && !inheritedFlag(props.scene, n.id, "hidden"))
+        .map(n => n.id);
+      const hit = includeIds.length ? props.renderer.current?.pickScene({ ...ray, includeIds }) : null;
+      const t = Math.abs(ray.direction[1]) > 1e-6 ? -ray.origin[1] / ray.direction[1] : -1;
+      const target = hit?.position ?? (t > 0 ? ray.origin.map((v, i) => v + t * ray.direction[i]) : null);
+      if (target) props.onAimLight(target);
+      else props.onError(tr("Click a model surface or the ground.", "请点击模型表面或地面"));
+      return true;
+    }
+    return false;
+  }
+  function targetAt(p: Point) {
+    const selectable = props.scene.nodes
+      .filter(
+        (n) =>
+          n.assetId &&
+          !inheritedFlag(props.scene, n.id, "locked") &&
+          !inheritedFlag(props.scene, n.id, "hidden"),
+      )
+      .map((n) => n.id);
+    const hit = selectable.length
+      ? props.renderer.current?.pickScene({
+          ...rayAt(p, props.camera, size),
+          includeIds: selectable,
+        })
+      : null;
+    const glyph = sceneGlyphs(props.scene, size.width / size.height)
+      .filter((g) => !inheritedFlag(props.scene, g.id, "locked"))
+      .map((g) => ({ id: g.id, p: project(g.position, props.camera, size) }))
+      .filter((g) => g.p && Math.hypot(g.p.x - p.x, g.p.y - p.y) < 18)
+      .sort(
+        (a, b) =>
+          Math.hypot(a.p!.x - p.x, a.p!.y - p.y) -
+          Math.hypot(b.p!.x - p.x, b.p!.y - p.y),
+      )[0];
+    if (glyph) return glyph.id;
+    return hit && props.scene.nodes.some((n) => n.id === hit.id) &&
+      project(hit.position, props.camera, size) ? hit.id : null;
+  }
+  function pickAt(p: Point, additive = false) {
+    props.onSelect(targetAt(p), additive);
+  }
+  const touchCamera = useRef<Camera | null>(null);
   const down = (e: React.PointerEvent<SVGSVGElement>) => {
+    setHoveredId(null);
+    if (e.pointerType === "touch") {
+      if (props.readOnly || props.resourceDrag || !props.ready || drag.current ||
+          orbit.current || touchPoints.current.size >= 2) return;
+      e.preventDefault();
+      touchPoints.current.set(e.pointerId, pointer(e));
+      if (touchPoints.current.size === 1) touchCamera.current = props.camera;
+      resetTouch(touchCamera.current ?? props.camera, touchPoints.current.size === 1);
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
     if (
       props.readOnly ||
       props.resourceDrag ||
@@ -276,18 +349,7 @@ export function Viewport(props: Props) {
     }
     if (e.button !== 0) return;
     e.preventDefault();
-    if (props.aimLight) {
-      const ray = rayAt(p, props.camera, size);
-      const includeIds = props.scene.nodes
-        .filter(n => n.assetId && !inheritedFlag(props.scene, n.id, "hidden"))
-        .map(n => n.id);
-      const hit = includeIds.length ? props.renderer.current?.pickScene({ ...ray, includeIds }) : null;
-      const t = Math.abs(ray.direction[1]) > 1e-6 ? -ray.origin[1] / ray.direction[1] : -1;
-      const target = hit?.position ?? (t > 0 ? ray.origin.map((v, i) => v + t * ray.direction[i]) : null);
-      if (target) props.onAimLight(target);
-      else props.onError(tr("Click a model surface or the ground.", "请点击模型表面或地面"));
-      return;
-    }
+    if (aimAt(p)) return;
     const hit = geometry ? hitGizmo(geometry, p) : null;
     if (hit !== null && geometry) {
       const next = beginDrag(geometry, hit, p);
@@ -305,41 +367,7 @@ export function Viewport(props: Props) {
         e.currentTarget.setPointerCapture(e.pointerId);
       }
     } else {
-      const selectable = props.scene.nodes
-        .filter(
-          (n) =>
-            n.assetId &&
-            !inheritedFlag(props.scene, n.id, "locked") &&
-            !inheritedFlag(props.scene, n.id, "hidden"),
-        )
-        .map((n) => n.id);
-      const hit = selectable.length
-        ? props.renderer.current?.pickScene({
-            ...rayAt(p, props.camera, size),
-            includeIds: selectable,
-          })
-        : null;
-      const glyph = sceneGlyphs(props.scene, size.width / size.height)
-        .filter((g) => !inheritedFlag(props.scene, g.id, "locked"))
-        .map((g) => ({ id: g.id, p: project(g.position, props.camera, size) }))
-        .filter((g) => g.p && Math.hypot(g.p.x - p.x, g.p.y - p.y) < 12)
-        .sort(
-          (a, b) =>
-            Math.hypot(a.p!.x - p.x, a.p!.y - p.y) -
-            Math.hypot(b.p!.x - p.x, b.p!.y - p.y),
-        )[0];
-      if (glyph) {
-        props.onSelect(glyph.id, e.ctrlKey || e.metaKey || e.shiftKey);
-        return;
-      }
-      props.onSelect(
-        hit &&
-          props.scene.nodes.some((n) => n.id === hit.id) &&
-          project(hit.position, props.camera, size)
-          ? hit.id
-          : null,
-        e.ctrlKey || e.metaKey || e.shiftKey,
-      );
+      pickAt(p, e.ctrlKey || e.metaKey || e.shiftKey);
     }
   };
   const dragTransform = (active: Drag, p: Point, shift: boolean) =>
@@ -347,6 +375,34 @@ export function Viewport(props: Props) {
       props.step, props.space === "world");
   const move = (e: React.PointerEvent<SVGSVGElement>) => {
     const p = pointer(e);
+    if (touchPoints.current.has(e.pointerId)) {
+      const gesture = touchGesture.current;
+      touchPoints.current.set(e.pointerId, p);
+      if (!gesture) return;
+      const [a, b] = [...touchPoints.current.values()];
+      const center = b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : a;
+      const dx = center.x - gesture.start.x, dy = center.y - gesture.start.y;
+      const camera = gesture.camera;
+      if (gesture.tap && Math.hypot(dx, dy) < 7) return;
+      gesture.tap = false;
+      if (b) {
+        const span = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+        const ratio = gesture.span / span;
+        const zoomed = {
+          ...camera,
+          distance: Math.max(.05, Math.min(100, camera.distance * ratio)),
+        };
+        touchCamera.current = panCamera(zoomed, dx, dy, size);
+      } else {
+        touchCamera.current = {
+          ...camera,
+          yaw: (((camera.yaw - dx * .35 + 180) % 360 + 360) % 360) - 180,
+          pitch: Math.max(-90, Math.min(90, camera.pitch + dy * .35)),
+        };
+      }
+      props.onCamera(touchCamera.current);
+      return;
+    }
     if (orbit.current?.id === e.pointerId) {
       const o = orbit.current;
       if (o.pan) {
@@ -383,9 +439,25 @@ export function Viewport(props: Props) {
       }
       return;
     }
-    setHot(geometry ? hitGizmo(geometry, p) : null);
+    const handle = geometry ? hitGizmo(geometry, p) : null;
+    setHot(handle);
+    setHoveredId(
+      handle === null && !e.buttons && !e.altKey && e.pointerType !== "touch" &&
+        props.ready && !props.resourceDrag && !props.readOnly && !props.aimLight && !panTool
+        ? targetAt(p) : null,
+    );
   };
   const up = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (touchPoints.current.has(e.pointerId)) {
+      const gesture = touchGesture.current;
+      const point = pointer(e);
+      const tap = gesture?.tap && Math.hypot(point.x - gesture.start.x, point.y - gesture.start.y) < 7;
+      touchPoints.current.delete(e.pointerId);
+      resetTouch(touchCamera.current ?? props.camera);
+      release(e.pointerId);
+      if (tap && !aimAt(point)) pickAt(point);
+      return;
+    }
     if (orbit.current?.id === e.pointerId) {
       orbit.current = null;
       release(e.pointerId);
@@ -411,31 +483,25 @@ export function Viewport(props: Props) {
       release(e.pointerId);
     }
   };
-  const box: Point[][] = [];
-  const outlined = subtreeIds(props.scene, props.selections),
-    worlds = worldMatrices(props.scene);
-  for (const selected of props.scene.nodes)
-    if (
-      outlined.has(selected.id) &&
-      selected.assetId &&
-      !inheritedFlag(props.scene, selected.id, "hidden")
-    ) {
-      const matrix = worlds.get(selected.id)!;
-      for (let bits = 0; bits < 8; bits++)
-        for (let k = 0; k < 3; k++)
-          if (!(bits & (1 << k))) {
-            const bounds = props.bounds[selected.assetId];
-            if (!bounds) continue;
-            const a = [0, 1, 2].map(
-                (k) => (bits & (1 << k) ? bounds.maximum : bounds.minimum)[k],
-              ),
-              b = [...a];
-            b[k] = bounds.maximum[k];
-            const p = project(transform(matrix, a), props.camera, size),
-              q = project(transform(matrix, b), props.camera, size);
-            if (p && q) box.push([p, q]);
-          }
+  const hover = props.readOnly || props.resourceDrag || props.aimLight || panTool
+    ? null : hoveredId;
+  const { scene, selections, ready, readOnly, renderer, onError } = props;
+  useEffect(() => {
+    if (!renderer.current || (!ready && !readOnly)) return;
+    const selected = readOnly ? new Set<string>() : subtreeIds(scene, selections);
+    const visible = scene.nodes.filter((node) =>
+      node.assetId && (node.id === hover || selected.has(node.id)) &&
+      !inheritedFlag(scene, node.id, "hidden"),
+    );
+    try {
+      renderer.current.setSceneOutlines({
+        hoveredId: hover && !selected.has(hover) && visible.some((node) => node.id === hover) ? hover : "",
+        selectedIds: visible.filter((node) => selected.has(node.id)).map((node) => node.id),
+      });
+    } catch (error) {
+      onError(String(error));
     }
+  }, [scene, selections, hover, ready, readOnly, renderer, onError]);
   const path = (points: Point[]) =>
     points.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ");
   return (
@@ -450,12 +516,14 @@ export function Viewport(props: Props) {
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={cancel}
-        onLostPointerCapture={() => {
+        onLostPointerCapture={(e) => {
+          if (touchPoints.current.has(e.pointerId)) cancel();
           if (drag.current) cancel();
           orbit.current = null;
         }}
         onPointerLeave={() => {
           if (!drag.current) setHot(null);
+          setHoveredId(null);
         }}
         onContextMenu={(e) => e.preventDefault()}
         style={{
@@ -468,26 +536,18 @@ export function Viewport(props: Props) {
                 : "default",
         }}
       >
-        <g
-          fill="none"
-          stroke="#7bb6ee"
-          strokeWidth="1.2"
-          opacity=".65"
-          pointerEvents="none"
-        >
-          {box.map((points, i) => (
-            <path key={i} d={path(points)} />
-          ))}
-        </g>
         {!props.readOnly &&
           sceneGlyphs(props.scene, size.width / size.height).map((g) => {
             const selected = props.selections.includes(g.id);
+            const showRange = selected || (hover === g.id &&
+              (g.lightType === "spot" || g.lightType === "point"));
             const p = project(g.position, props.camera, size),
               color = selected
                 ? "#f0c55a"
+                : hover === g.id ? "#85eaff"
                 : g.type === "camera"
-                  ? "#6396d5"
-                  : "#b79c52";
+                  ? "#9ed5ff"
+                  : "#ffcf58";
             return (
               <g
                 key={g.id}
@@ -496,25 +556,43 @@ export function Viewport(props: Props) {
                 stroke={color}
                 fill="none"
               >
-                {selected && g.lines.map(([a, b], k) => {
+                {showRange && g.lines.map(([a, b], k) => {
                   const x = project(a, props.camera, size),
                     y = project(b, props.camera, size);
                   return x && y ? (
-                    <path key={k} d={path([x, y])} strokeWidth={1.5} />
+                    <path key={k} d={path([x, y])} strokeWidth={selected ? 2.5 : 1.8}
+                      opacity={selected ? 1 : 0.9} />
                   ) : null;
                 })}
                 {p && (
                   <>
-                    <circle cx={p.x} cy={p.y} r={selected ? 5 : 3} fill={color} />
-                    {selected && <text
-                      x={p.x + 10}
+                    {g.type === "camera" ? (
+                      <path data-camera-icon="" transform={`translate(${p.x} ${p.y}) scale(1.65)`}
+                        d="M-8 -5H3V5H-8Z M3 -2L8 -5V5L3 2Z"
+                        strokeWidth={1.5} strokeLinejoin="round" />
+                    ) : (
+                      <g data-light-icon={g.lightType} transform={`translate(${p.x} ${p.y}) scale(1.65)`}
+                        strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                        {g.lightType === "spot" ? (
+                          <path d="M-6 -5H0L5 -8V5L0 2H-6Z M2 7L5 9 M7 0H9" />
+                        ) : g.lightType === "rectangle" ? (
+                          <path d="M-7 -5H7V5H-7Z M-4 -2H4V2H-4Z" />
+                        ) : g.lightType === "point" ? (
+                          <path d="M-3 3C-9 -4 -2 -9 2 -7C7 -5 6 -1 3 3V7H-3Z M-2 9H2" />
+                        ) : (
+                          <><circle r={3.5} /><path d="M0 -8V-6 M0 6V8 M-8 0H-6 M6 0H8 M-6 -6L-4 -4 M6 6L4 4 M-6 6L-4 4 M6 -6L4 -4" /></>
+                        )}
+                      </g>
+                    )}
+                    {(selected || g.type === "camera") && <text
+                      x={p.x + 19}
                       y={p.y - 8}
                       fill={color}
-                      stroke="none"
+                      stroke="#25292e" strokeWidth={2.5} paintOrder="stroke"
                       fontSize="12"
                     >
-                      {g.type === "camera" ? tr("Camera", "相机") : tr("Light", "灯光")}
-                      {g.active ? tr("· Main", "· 主") : ""}
+                      {g.name}
+                      {g.active && g.type === "camera" ? tr(" · Main", " · 主") : ""}
                     </text>}
                   </>
                 )}

@@ -3,6 +3,7 @@ import {
   type Scene,
   type SceneNode,
   type CameraComponent,
+  type LightComponent,
 } from "../../scene-schema/index";
 import {
   localMatrix,
@@ -72,7 +73,7 @@ export function createCamera(id: string, c: Camera): SceneNode {
 }
 export function createLight(
   id: string,
-  type: "directional" | "point" | "spot" = "directional",
+  type: LightComponent["type"] = "directional",
 ): SceneNode {
   const c: Camera = {
     yaw: (Math.atan2(-1, 2) * 180) / Math.PI,
@@ -88,16 +89,18 @@ export function createLight(
         ? "Directional light"
         : type === "point"
           ? "Point light"
-          : "Spot light",
+          : type === "spot" ? "Spot light" : "Rectangle light",
     transform: viewTransform(c),
     light: {
       type,
-      range: 10,
+      range: type === "rectangle" ? 0 : 10,
+      width: 1,
+      height: 1,
       innerConeAngle: 0.35,
       outerConeAngle: 0.6,
       color: [1, 1, 1],
-      intensity: 3.5,
-      shadows: type === "directional",
+      intensity: type === "point" || type === "spot" ? 35 : 3.5,
+      shadows: true,
       softness: 1,
       active: false,
     },
@@ -166,10 +169,15 @@ export function sceneLights(scene: Scene) {
         color: [...l.color],
         intensity: l.intensity,
         position: m.slice(12, 15),
-        direction: mul(norm(m.slice(8, 11)), l.type === "spot" ? -1 : 1),
+        direction: mul(norm(m.slice(8, 11)), l.type === "spot" || l.type === "rectangle" ? -1 : 1),
         range: l.range ?? 0,
         innerConeAngle: l.innerConeAngle ?? 0.35,
         outerConeAngle: l.outerConeAngle ?? 0.6,
+        ...(l.type === "rectangle" ? {
+          width: l.width ?? 1,
+          height: l.height ?? 1,
+          up: norm(m.slice(4, 7)),
+        } : {}),
         castShadow: l.shadows,
         shadowSoftness: l.softness,
       };
@@ -303,6 +311,8 @@ export function applyCameraLens(
 export type SceneGlyph = {
   id: string;
   type: "camera" | "light";
+  lightType?: LightComponent["type"];
+  name: string;
   position: Vec;
   lines: [Vec, Vec][];
   active: boolean;
@@ -373,6 +383,11 @@ export function sceneGlyphs(scene: Scene, aspect = 1.5): SceneGlyph[] {
               ]);
             }
         }
+        if (light.type === "rectangle") {
+          const x = (light.width ?? 1) / 2, y = (light.height ?? 1) / 2;
+          const corners = [[-x, -y, 0], [x, -y, 0], [x, y, 0], [-x, y, 0]];
+          corners.forEach((point, index) => local.push([point, corners[(index + 1) % 4]]));
+        }
         if (light.type === "spot") {
           const d = radius > 0 ? radius : 2;
           for (const angle of [
@@ -408,6 +423,8 @@ export function sceneGlyphs(scene: Scene, aspect = 1.5): SceneGlyph[] {
       return {
         id: n.id,
         type: n.camera ? "camera" : "light",
+        lightType: n.light?.type,
+        name: n.name,
         position: m.slice(12, 15),
         active: !!(n.camera?.primary || n.light?.active),
         lines: local.map(

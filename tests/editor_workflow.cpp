@@ -161,15 +161,9 @@ int main(int argc, char** argv)
             const auto output = std::filesystem::absolute(argv[3]);
             std::filesystem::create_directories(output);
             Editor editor;
-            editor.fbxConversion = true;
             editor.helperRoot = std::filesystem::absolute(argv[4]);
             editor.assetRoot = output;
-            const auto glb = output / "converted.glb";
-            std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", source.string().c_str());
-            std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", glb.string().c_str());
-            editor.convertModel();
-            std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", glb.string().c_str());
-            editor.importModel();
+            editor.importModel(source);
             const auto id = editor.selected;
             const auto assetId = editor.history.scene["nodes"][0]["assetId"].get<std::string>();
             render::WindowConfig config;
@@ -206,19 +200,14 @@ int main(int argc, char** argv)
             const auto output = std::filesystem::absolute(argv[3]);
             std::filesystem::create_directories(output);
             Editor editor;
-            editor.fbxConversion = true;
             editor.helperRoot = std::filesystem::absolute(argv[4]);
             editor.assetRoot = output;
-            const auto convert = [&](const auto& input, const auto& result) {
-                std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", input.string().c_str());
-                std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", result.string().c_str());
-                editor.convertModel();
-            };
             const auto fbx = output / "model.fbx", glb = output / "model.glb";
-            convert(source, fbx);
-            convert(fbx, glb);
-            std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", glb.string().c_str());
-            editor.importModel();
+            editor.importModel(source);
+            editor.exportModel(fbx, 4, std::nullopt);
+            editor.history.replace(editor::emptyScene());
+            editor.importModel(fbx);
+            editor.exportModel(glb, 0, std::nullopt);
             editor::saveProject(output / "project.json", editor.history.scene, output);
             std::cout << "FBX roundtrip and desktop reimport passed\n";
             return 0;
@@ -229,27 +218,23 @@ int main(int argc, char** argv)
             const auto output = std::filesystem::absolute(argv[3]);
             std::filesystem::create_directories(output);
             Editor editor;
-            editor.meshConversion = true;
             editor.assetRoot = output;
-            const auto convert = [&](const auto& input, const auto& result) {
-                std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", input.string().c_str());
-                std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", result.string().c_str());
-                editor.convertModel();
-            };
             for (const auto* format : {"obj", "stl"})
             {
+                editor.history.replace(editor::emptyScene());
+                editor.importModel(source);
                 const auto mesh = output / (std::string("helmet.") + format);
                 const auto glb = output / (std::string("helmet-") + format + ".glb");
-                convert(source, mesh);
+                editor.exportModel(mesh, std::string(format) == "obj" ? 1 : 2, std::nullopt);
                 auto input = mesh;
                 if (std::string(format) == "obj")
                 {
                     input.replace_extension();
                     input /= "model.obj";
                 }
-                convert(input, glb);
-                std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", input.string().c_str());
-                editor.importModel();
+                editor.history.replace(editor::emptyScene());
+                editor.importModel(input);
+                editor.exportModel(glb, 0, std::nullopt);
                 const auto expected = editor::assets::parseMesh(editor::assets::glbToMesh(editor::assets::readBytes(source), true), true);
                 const auto actual = editor::assets::parseMesh(editor::assets::glbToMesh(editor::assets::readBytes(glb), true), true);
                 require(expected == actual, "Mesh roundtrip changed triangle positions");
@@ -275,19 +260,14 @@ int main(int argc, char** argv)
             const auto output = std::filesystem::absolute(argv[2]);
             std::filesystem::create_directories(output);
             Editor editor;
-            const auto convert = [&](bool pack, const auto& input, const auto& result) {
-                editor.packConversion = pack;
-                std::snprintf(editor.conversionSource, sizeof(editor.conversionSource), "%s", input.string().c_str());
-                std::snprintf(editor.conversionTarget, sizeof(editor.conversionTarget), "%s", result.string().c_str());
-                editor.convertModel();
-            };
-            const auto first = output / "first.glb", unpacked = output / "unpacked", final = output / "repacked.glb";
-            convert(true, source, first);
-            convert(false, first, unpacked);
-            convert(true, unpacked / "model.gltf", final);
             editor.assetRoot = output;
-            std::snprintf(editor.modelPath, sizeof(editor.modelPath), "%s", final.string().c_str());
-            editor.importModel();
+            const auto first = output / "first.glb", unpacked = output / "unpacked", final = output / "repacked.glb";
+            editor.importModel(source);
+            editor.exportModel(first, 0, std::nullopt);
+            editor.exportModel(output / "unpacked.gltf", 3, std::nullopt);
+            editor.history.replace(editor::emptyScene());
+            editor.importModel(unpacked / "model.gltf");
+            editor.exportModel(final, 0, std::nullopt);
             require(editor.history.scene["nodes"].size() == 1, "Reimport did not add the animated model");
             editor::saveProject(output / "project.json", editor.history.scene, output);
             std::cout << "Desktop editor conversion, reimport and save passed: " << final << '\n';

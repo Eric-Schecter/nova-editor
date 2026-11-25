@@ -444,25 +444,52 @@ namespace editor::assets
         }
         return doc;
     }
-    inline const std::array<std::string, 5> textureSlots{
-      "baseColor", "normal", "metallicRoughness", "occlusion", "emissive"};
-    inline std::pair<Json*, std::string> textureParent(Json& m, const std::string& slot)
+    inline constexpr size_t textureSlotCount = 17;
+    inline const std::array<std::string, textureSlotCount> textureSlots{
+      "baseColor", "normal", "metallicRoughness", "occlusion", "emissive",
+      "clearcoat", "clearcoatRoughness", "clearcoatNormal", "specular", "specularColor", "sheenColor", "sheenRoughness", "iridescence", "iridescenceThickness", "anisotropy", "transmission", "thickness"};
+    inline const std::array<const char*, textureSlotCount> textureLabels{
+      "Base color", "Normal", "Metallic / roughness", "Occlusion", "Emissive",
+      "Clearcoat", "Clearcoat roughness", "Clearcoat normal", "Specular", "Specular color", "Sheen color", "Sheen roughness", "Iridescence", "Iridescence thickness", "Anisotropy", "Transmission", "Volume thickness"};
+    inline const std::array<const char*, textureSlotCount> textureExtensions{
+      "", "", "", "", "",
+      "KHR_materials_clearcoat", "KHR_materials_clearcoat", "KHR_materials_clearcoat", "KHR_materials_specular", "KHR_materials_specular", "KHR_materials_sheen", "KHR_materials_sheen", "KHR_materials_iridescence", "KHR_materials_iridescence", "KHR_materials_anisotropy", "KHR_materials_transmission", "KHR_materials_volume"};
+    inline size_t textureSlotIndex(const std::string& slot)
     {
-        if (std::find(textureSlots.begin(), textureSlots.end(), slot) == textureSlots.end())
-            throw std::runtime_error("Unknown texture slot");
-        if (slot == "baseColor" || slot == "metallicRoughness")
-            return {&m["pbrMetallicRoughness"], slot + "Texture"};
-        return {&m, slot + "Texture"};
+        const auto it = std::find(textureSlots.begin(), textureSlots.end(), slot);
+        if (it == textureSlots.end()) throw std::runtime_error("Unknown texture slot");
+        return size_t(it - textureSlots.begin());
+    }
+    template<class Material>
+    inline Material* textureParent(Material& material, size_t slot)
+    {
+        const char* extension = textureExtensions[slot];
+        if (*extension)
+        {
+            const auto extensions = material.find("extensions");
+            if (extensions == material.end()) return nullptr;
+            const auto entry = extensions->find(extension);
+            return entry == extensions->end() ? nullptr : &*entry;
+        }
+        if (slot == 0 || slot == 2)
+        {
+            const auto pbr = material.find("pbrMetallicRoughness");
+            return pbr == material.end() ? nullptr : &*pbr;
+        }
+        return &material;
     }
     inline bool hasTexture(const GLB& doc, const std::string& slot)
     {
-        if (std::find(textureSlots.begin(), textureSlots.end(), slot) == textureSlots.end())
-            throw std::runtime_error("Unknown texture slot");
         const auto& material = doc.json.at("materials").at(*materialIds(doc).begin());
-        if (slot == "baseColor" || slot == "metallicRoughness")
-            return material.contains("pbrMetallicRoughness")
-                   && material["pbrMetallicRoughness"].contains(slot + "Texture");
-        return material.contains(slot + "Texture");
+        const auto* parent = textureParent(material, textureSlotIndex(slot));
+        return parent && parent->contains(slot + "Texture");
+    }
+    inline bool materialUsesTextureSlot(const GLB& doc, size_t slot)
+    {
+        if (!*textureExtensions[slot]) return true;
+        for (const auto id : materialIds(doc))
+            if (textureParent(doc.json.at("materials").at(id), slot)) return true;
+        return false;
     }
     inline std::string imageType(const Bytes& b)
     {
@@ -486,13 +513,23 @@ namespace editor::assets
     }
     inline GLB applyTexture(GLB doc, const std::string& slot, const std::optional<Bytes>& bytes)
     {
+        const auto slotIndex = textureSlotIndex(slot);
+        const auto key = slot + "Texture";
         int index = -1;
         if (bytes)
         {
             for (const auto& mesh : doc.json["meshes"])
                 for (const auto& p : mesh["primitives"])
-                    if (!p["attributes"].contains("TEXCOORD_0"))
-                        throw std::runtime_error("Model needs UVs for textures");
+                {
+                    if (!p.contains("material")) continue;
+                    const auto* parent = textureParent(doc.json.at("materials").at(p["material"].get<int>()), slotIndex);
+                    if (!parent && *textureExtensions[slotIndex]) continue;
+                    const auto info = parent ? parent->value(key, Json::object()) : Json::object();
+                    const auto transform = info.value("extensions", Json::object()).value("KHR_texture_transform", Json::object());
+                    const auto uv = transform.value("texCoord", info.value("texCoord", 0));
+                    if (!p["attributes"].contains("TEXCOORD_" + std::to_string(uv)))
+                        throw std::runtime_error("Model needs the material UV set for texture replacement");
+                }
             auto mime   = imageType(*bytes);
             auto at     = appendBin(doc, *bytes);
             auto ensure = [&](const char* k) {
@@ -511,14 +548,27 @@ namespace editor::assets
         }
         for (int id : materialIds(doc))
         {
-            auto parent = textureParent(doc.json["materials"][id], slot);
+            auto& material = doc.json["materials"][id];
+            if (index >= 0 && (slotIndex == 0 || slotIndex == 2) && !material.contains("pbrMetallicRoughness"))
+                material["pbrMetallicRoughness"] = Json::object();
+            auto* parent = textureParent(material, slotIndex);
+            if (!parent) continue;
             if (index < 0)
-                parent.first->erase(parent.second);
+                parent->erase(key);
             else
             {
-                auto& t       = (*parent.first)[parent.second];
-                t["index"]    = index;
-                t["texCoord"] = 0;
+                auto& info = (*parent)[key];
+                if (info.is_null()) info = Json::object();
+                const auto oldIndex = info.value("index", -1);
+                int replacement = index;
+                if (oldIndex >= 0 && doc.json["textures"].at(oldIndex).contains("sampler"))
+                {
+                    auto texture = doc.json["textures"].at(index);
+                    texture["sampler"] = doc.json["textures"].at(oldIndex)["sampler"];
+                    replacement = int(doc.json["textures"].size());
+                    doc.json["textures"].push_back(std::move(texture));
+                }
+                info["index"] = replacement;
             }
         }
         return doc;

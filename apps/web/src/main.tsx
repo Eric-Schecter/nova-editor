@@ -116,7 +116,7 @@ import {
   sceneBounds,
   type AssetBounds,
 } from "../../../packages/editor-core/src/navigation";
-import { Viewport } from "./Viewport";
+import { Viewport, type ViewportRenderer } from "./Viewport";
 import type { Camera } from "../../../packages/editor-core/src/viewport";
 import { Icon } from "./Icon";
 import "./style.css";
@@ -144,6 +144,7 @@ type Renderer = {
     includeIds?: string[];
     excludeIds?: string[];
   }) => { id: string; position: number[] } | null;
+  setSceneOutlines: ViewportRenderer["setSceneOutlines"];
   setScene: (
     assets: { id: string; url: string; sourceSpace?: boolean; materialVariant?: number }[],
     instances: {
@@ -160,6 +161,11 @@ type Renderer = {
   updateAnimations: (delta: number) => void;
   drawFrame: () => Promise<unknown>;
   setContinuousRendering: (enabled: boolean) => void;
+  setAntiAliasing: (settings: { method: "smaa" }) => void;
+  getRasterCapabilities: () => { deferred: boolean };
+  getViewportGrid: () => { enabled: boolean };
+  setViewportGrid: (settings: { enabled: boolean; elevation: number; minorSpacing: number; majorSpacing: number }) => void;
+  setRenderScale?: (scale: number) => void;
   enableOrbitControls: () => void;
   dispose: () => void;
   setClearColor: (c: number[]) => void;
@@ -302,6 +308,16 @@ function NameField({
   );
 }
 const history = new EditorHistory();
+type SaveWindow = Window & {
+        showSaveFilePicker?: (options: unknown) => Promise<{
+          createWritable: () => Promise<{
+            write: (data: Blob) => Promise<void>;
+            close: () => Promise<void>;
+            abort: () => Promise<void>;
+          }>;
+        }>;
+      };
+
 function App() {
   const language = useLanguage();
   useEffect(() => { document.documentElement.lang = language === "zh" ? "zh-CN" : "en"; }, [language]);
@@ -320,6 +336,7 @@ function App() {
     [status, setStatus] = useState(tr("Ready", "准备就绪")),
     [preview, setPreview] = useState(tr("Empty scene", "空场景")),
     [renderingBusy, setBusy] = useState(false),
+    [sceneLoading, setSceneLoading] = useState(false),
     [projectBusy, setProjectBusy] = useState(false),
     [resourceDrag, setResourceDrag] = useState<ResourceDrag | null>(null),
     [gridSnap, setGridSnap] = useState(true),
@@ -334,6 +351,7 @@ function App() {
       "scene",
     ),
     [assetsOpen, setAssetsOpen] = useState(false),
+    [mobileDrawer, setMobileDrawer] = useState<"scene" | "properties" | "assets" | null>(null),
     [inspectorTab, setInspectorTab] = useState<
       "object" | "geometry" | "material" | "lighting" | "world"
     >("object"),
@@ -400,6 +418,9 @@ function App() {
   const consumeAssetClick = useRef(false);
   const pendingFocus = useRef<string | null>(null),
     cameraLatest = useRef(camera);
+  const cameraFocus = useRef<{from: Camera; to: Camera; started: number} | null>(null);
+  const preparedOutlineAssets = useRef("");
+  const renderedAssets = useRef("");
   cameraLatest.current = camera;
   const modelInput = useRef<HTMLInputElement>(null),
     projectInput = useRef<HTMLInputElement>(null);
@@ -509,6 +530,23 @@ function App() {
                 ? 0
                 : Math.min(0.1, (now - previous) / 1000),
             );
+          }
+          const focus = cameraFocus.current;
+          if (focus) {
+            const elapsed = Math.min(1, (performance.now() - focus.started) / 280);
+            const eased = elapsed * elapsed * (3 - 2 * elapsed);
+            const next = elapsed === 1 ? focus.to : {
+              ...focus.to,
+              distance: focus.from.distance + (focus.to.distance - focus.from.distance) * eased,
+              target: focus.to.target?.map((value, axis) => {
+                const start = focus.from.target?.[axis] ?? 0;
+                return start + (value - start) * eased;
+              }),
+            };
+            raw.setCamera(next);
+            cameraLatest.current = next;
+            setCamera(next);
+            if (elapsed === 1) cameraFocus.current = null;
           }
           await raw.drawFrame();
           if (
@@ -625,6 +663,7 @@ function App() {
   const refresh = () => render((n) => n + 1);
   const changeCamera = (value: Camera) => {
     if (mainPreview) return;
+    cameraFocus.current = null;
     try {
       renderer.current?.setCamera(value);
       cameraLatest.current = value;
@@ -633,6 +672,15 @@ function App() {
         void renderer.current.drawFrame().catch((e) => setStatus(String(e)));
     } catch (e) {
       setStatus(String(e));
+    }
+  };
+  const focusCamera = (to: Camera, animate = true) => {
+    if (mainPreview) return;
+    const from = cameraLatest.current;
+    if (!animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      changeCamera(to);
+    } else if (from !== to) {
+      cameraFocus.current = { from, to, started: performance.now() };
     }
   };
   const rasterBeforeHybrid = useRef<RasterPipeline | null>(null);
@@ -866,6 +914,7 @@ function App() {
       .then(async () => {
         if (!alive.current || token !== generation.current) return;
         setBusy(true);
+        setSceneLoading(!renderer.current);
         try {
           if (!renderer.current) {
             const sdk = await import(
@@ -886,6 +935,11 @@ function App() {
             }
             // The editor already schedules frames and advances animation for every instance.
             next.setContinuousRendering(false);
+            next.setAntiAliasing({ method: "smaa" });
+            if (next.getRasterCapabilities().deferred)
+              next.setViewportGrid({ enabled: true, elevation: -0.012, minorSpacing: 1, majorSpacing: 5 });
+            if (window.matchMedia("(pointer: coarse)").matches)
+              next.setRenderScale?.(Math.min(1, 1.5 / (window.devicePixelRatio || 1)));
             next.setClearColor([0.6, 0.6, 0.6, 1]);
             next.setLighting(lit ? "pbr" : "unlit");
             next.setDirectionalLight(rendererLight(light));
@@ -919,6 +973,8 @@ function App() {
             return { id, url: cached!.url, sourceSpace: !!a.sourceSpace,
               ...(a.materialVariant === undefined ? {} : { materialVariant: a.materialVariant }) };
           });
+          const assetKey = JSON.stringify(definitions);
+          setSceneLoading(assetKey !== renderedAssets.current);
           const activePaths = new Set(
             Object.values(snapshot.assets).map((a) => a.path),
           );
@@ -980,6 +1036,7 @@ function App() {
             ...unusedResources.map((x) => x.id),
           ]);
           for (const helper of helperManifest) {
+            if (helper.name === "grid" && renderer.current.getViewportGrid().enabled) continue;
             let id = `__nova_viewport_${helper.name}`;
             while (used.has(id)) id += "_";
             used.add(id);
@@ -1048,6 +1105,11 @@ function App() {
             1,
           ]);
           const lamps = sceneLights(snapshot);
+          const hasRectangle = lamps.some((lamp) => lamp.enabled && lamp.type === "rectangle");
+          if (hasRectangle && renderer.current.getRayTracing().integrator !== "path") {
+            renderer.current.setRayTracing({...renderer.current.getRayTracing(), integrator: "path"});
+            setIntegrator("path");
+          }
           renderer.current.setLights(
             snapshot.nodes.some((n) => n.light)
               ? lamps
@@ -1096,16 +1158,29 @@ function App() {
                 pendingFocus.current === "*" ? null : pendingFocus.current;
               pendingFocus.current = null;
               const r = canvas.current!.getBoundingClientRect();
-              changeCamera(
-                frameBounds(
-                  cameraLatest.current,
-                  sceneBounds(snapshot, bounds, root),
-                  { width: r.width, height: r.height },
-                ),
-              );
+              const to = frameBounds(cameraLatest.current, sceneBounds(snapshot, bounds, root),
+                { width: r.width, height: r.height });
+              focusCamera(to, root !== null);
             }
           }
-          await renderer.current.drawFrame();
+          if (instances.length && !mainPreview && raw.getRenderMode() === "raster" &&
+              assetKey !== preparedOutlineAssets.current) {
+            // Build both mask passes before picking is enabled. An unused ID
+            // activates the passes without highlighting anything in the scene.
+            let unusedId = "__nova_prepare_outlines";
+            while (used.has(unusedId)) unusedId += "_";
+            try {
+              raw.setSceneOutlines({ hoveredId: unusedId, selectedIds: [unusedId] });
+              if (await raw.drawFrame() === "rendered")
+                preparedOutlineAssets.current = assetKey;
+            } catch {
+              // The ordinary scene frame must still render if outlines are unavailable.
+            } finally {
+              raw.setSceneOutlines({ hoveredId: "", selectedIds: [] });
+            }
+          }
+          await raw.drawFrame();
+          renderedAssets.current = assetKey;
           if (alive.current && token === generation.current) {
             setPreview(
               instances.length
@@ -1121,7 +1196,10 @@ function App() {
         } catch (e) {
           if (alive.current) setStatus(`${tr("Scene rendering failed", "场景渲染失败")}: ${e}`);
         } finally {
-          if (alive.current && token === generation.current) setBusy(false);
+          if (alive.current && token === generation.current) {
+            setBusy(false);
+            setSceneLoading(false);
+          }
         }
       });
   }, [sceneKey, mainPreview]);
@@ -1155,18 +1233,24 @@ function App() {
     try {
       const extension = file.name.toLowerCase().split(".").pop();
       if (
-        (!extension || !["glb", "gltf", "obj", "stl", "step", "stp"].includes(extension)) ||
+        (!extension || !["glb", "gltf", "obj", "stl", "fbx", "step", "stp"].includes(extension)) ||
         file.size > 128 * 1024 * 1024
       )
-        throw Error(tr("Choose a glTF, GLB, OBJ, STL, or STEP file under 128 MiB", "请选择小于 128 MiB 的 glTF、GLB、OBJ、STL 或 STEP"));
+        throw Error(tr("Choose a glTF, GLB, OBJ, STL, FBX, or STEP file under 128 MiB", "请选择小于 128 MiB 的 glTF、GLB、OBJ、STL、FBX 或 STEP"));
       let bytes: Uint8Array;
-      if (extension === "step" || extension === "stp") {
+      if (extension === "fbx" || extension === "step" || extension === "stp") {
         documentIO.current = true;
         setProjectBusy(true);
-        setStatus(tr("Triangulating STEP…", "正在三角化 STEP…"));
         try {
-          const { convertSTEP } = await import("./step");
-          bytes = await convertSTEP(file);
+          if (extension === "fbx") {
+            setStatus(tr("Importing FBX…", "正在导入 FBX…"));
+            const { convertFBX } = await import("./fbx");
+            bytes = await convertFBX(file, "glb");
+          } else {
+            setStatus(tr("Triangulating STEP…", "正在三角化 STEP…"));
+            const { convertSTEP } = await import("./step");
+            bytes = await convertSTEP(file);
+          }
         } finally {
           documentIO.current = false;
           setProjectBusy(false);
@@ -1175,7 +1259,7 @@ function App() {
         const raw = new Uint8Array(await file.arrayBuffer());
         bytes = extension === "glb" ? raw : extension === "gltf"
           ? packGLTF(raw, (path) => {
-              throw Error(tr("Missing", "缺少") + path + tr(". Use Import glTF folder.", "，请使用「导入 glTF 资源文件夹」"));
+              throw Error(tr("Missing", "缺少") + path + tr(". Choose the glTF resource folder in Import.", "，请在「导入」里选择 glTF 文件夹"));
             })
           : extension === "obj"
           ? objToGLB(raw, (path) => {
@@ -1211,7 +1295,7 @@ function App() {
         s.nodes.push({
           id,
           parentId: null,
-          name: file.name.replace(/\.(glb|gltf|obj|stl|step|stp)$/i, ""),
+          name: file.name.replace(/\.(glb|gltf|obj|stl|fbx|step|stp)$/i, ""),
           transform: identity(),
         });
         if (model) files = expandModel(s, id, model, () => crypto.randomUUID());
@@ -1266,68 +1350,45 @@ function App() {
     }
   }
   const packInput = useRef<HTMLInputElement>(null);
-  const importGLTFFolder = useRef(false);
-  const splitInput = useRef<HTMLInputElement>(null);
-  async function convertModel(files: File[], pack: boolean, importIntoScene = false) {
+  async function importGLTFFiles(files: File[]) {
     if (documentIO.current || !files.length) return;
     documentIO.current = true;
     setProjectBusy(true);
     let imported: File | undefined;
     try {
-      const models = files.filter((file) =>
-        file.name.toLowerCase().endsWith(pack ? ".gltf" : ".glb"),
-      );
+      const models = files.filter(file => file.name.toLowerCase().endsWith(".gltf"));
       if (models.length !== 1)
-        throw Error(
-          pack ? tr("Choose a folder containing exactly one .gltf file", "请选择只含一个 .gltf 的模型文件夹") : tr("Choose one GLB file", "请选择一个 GLB"),
-        );
+        throw Error(tr("Choose a folder containing exactly one .gltf file", "请选择只含一个 .gltf 的模型文件夹"));
       const model = models[0];
-      const read = async (file: File) => {
-        if (file.size > 128 * 1024 * 1024)
-          throw Error(tr("Resource exceeds 128 MiB:", "资源超过 128 MiB：") + file.name);
-        return new Uint8Array(await file.arrayBuffer());
-      };
-      const source = await read(model);
-      let converted: Uint8Array;
-      if (pack) {
-        const relative = model.webkitRelativePath;
-        const parent = relative.slice(0, relative.lastIndexOf("/") + 1);
-        const available = new Map(
-          files.map((file) => [file.webkitRelativePath, file]),
-        );
-        const json = JSON.parse(new TextDecoder().decode(source));
-        if (json.asset?.version !== "2.0") throw Error(tr("glTF 2.0 is required", "需要 glTF 2.0"));
-        const resources = new Map<string, Uint8Array>();
-        let total = 0;
-        for (const entry of [...(json.buffers ?? []), ...(json.images ?? [])]) {
-          if (typeof entry.uri !== "string" || entry.uri.startsWith("data:"))
-            continue;
-          const path = resourcePath(entry.uri);
-          if (resources.has(path)) continue;
-          const file = available.get(parent + path);
-          if (!file) throw Error(tr("Missing resource:", "缺少资源：") + path);
-          total += file.size;
-          if (total > 128 * 1024 * 1024) throw Error(tr("External resources exceed 128 MiB", "外置资源超过 128 MiB"));
-          resources.set(path, await read(file));
-        }
-        converted = packGLTF(source, (path) => {
-          const bytes = resources.get(path);
-          if (!bytes) throw Error(tr("Missing resource:", "缺少资源：") + path);
-          return bytes;
-        });
-      } else {
-        converted = zipSync(splitGLB(source), { level: 0 });
+      if (model.size > 128 * 1024 * 1024)
+        throw Error(tr("File exceeds 128 MiB", "文件超过 128 MiB"));
+      const source = new Uint8Array(await model.arrayBuffer());
+      const relative = model.webkitRelativePath;
+      const parent = relative.slice(0, relative.lastIndexOf("/") + 1);
+      const available = new Map(files.map(file => [file.webkitRelativePath, file]));
+      const json = JSON.parse(new TextDecoder().decode(source));
+      if (json.asset?.version !== "2.0") throw Error(tr("glTF 2.0 is required", "需要 glTF 2.0"));
+      const resources = new Map<string, Uint8Array>();
+      let total = 0;
+      for (const entry of [...(json.buffers ?? []), ...(json.images ?? [])]) {
+        if (typeof entry.uri !== "string" || entry.uri.startsWith("data:")) continue;
+        const path = resourcePath(entry.uri);
+        if (resources.has(path)) continue;
+        const file = available.get(parent + path);
+        if (!file) throw Error(tr("Missing resource:", "缺少资源：") + path);
+        total += file.size;
+        if (total > 128 * 1024 * 1024)
+          throw Error(tr("External resources exceed 128 MiB", "外置资源超过 128 MiB"));
+        resources.set(path, new Uint8Array(await file.arrayBuffer()));
       }
-      if (importIntoScene) {
-        const name = model.name.replace(/\.gltf$/i, ".glb");
-        imported = new File([new Uint8Array(converted)], name);
-      } else {
-        downloadModel(converted, model.name.replace(/\.(gltf|glb)$/i, "") +
-          (pack ? ".glb" : "-gltf.zip"));
-        setStatus(pack ? tr("GLB download started", "已生成 GLB 并发起下载") : tr("glTF archive download started", "已生成 glTF 资源包并发起下载"));
-      }
+      const bytes = packGLTF(source, path => {
+        const resource = resources.get(path);
+        if (!resource) throw Error(tr("Missing resource:", "缺少资源：") + path);
+        return resource;
+      });
+      imported = new File([new Uint8Array(bytes)], model.name.replace(/\.gltf$/i, ".glb"));
     } catch (error) {
-      setStatus(`${importIntoScene ? tr("glTF import failed", "导入 glTF 失败") : tr("Conversion failed", "格式转换失败")}：${error}`);
+      setStatus(`${tr("glTF import failed", "导入 glTF 失败")}: ${error}`);
     } finally {
       documentIO.current = false;
       setProjectBusy(false);
@@ -1336,8 +1397,7 @@ function App() {
   }
 
   const objFolderInput = useRef<HTMLInputElement>(null);
-  const objFolderImport = useRef(false);
-  async function openOBJFolder(files: File[], importIntoScene: boolean) {
+  async function openOBJFolder(files: File[]) {
     if (documentIO.current || !files.length) return;
     documentIO.current = true;
     setProjectBusy(true);
@@ -1372,11 +1432,7 @@ function App() {
       };
       const bytes = objToGLB(load(source.name), load);
       const name = source.name.replace(/\.obj$/i, ".glb");
-      if (importIntoScene) model = new File([new Uint8Array(bytes)], name);
-      else {
-        downloadModel(bytes, name);
-        setStatus(tr("GLB download started with materials and textures", "已发起 GLB 下载（含材质与贴图）"));
-      }
+      model = new File([new Uint8Array(bytes)], name);
     } catch (error) {
       setStatus(`${tr("OBJ processing failed", "OBJ 处理失败")}: ${error}`);
     } finally {
@@ -1386,90 +1442,11 @@ function App() {
     if (model) await importGLB(model);
   }
 
-  const fbxInput = useRef<HTMLInputElement>(null);
-  const fbxTarget = useRef<"fbx" | "glb">("fbx");
-
-  function startFBXConversion(target: "fbx" | "glb") {
-    fbxTarget.current = target;
-    const input = fbxInput.current;
-    if (!input) return;
-    input.accept = target === "fbx" ? ".glb" : ".fbx";
-    input.click();
-  }
-
-  async function convertFBXFile(file: File, target: "fbx" | "glb") {
-    if (documentIO.current) return;
-    documentIO.current = true;
-    setProjectBusy(true);
-    try {
-      const source = target === "fbx" ? "glb" : "fbx";
-      if (
-        !file.name.toLowerCase().endsWith("." + source) ||
-        !file.size ||
-        file.size > 128 * 1024 * 1024
-      )
-        throw Error(
-          tr("Choose a file under 128 MiB:", "请选择不超过 128 MiB 的") + source.toUpperCase() + tr("File", "文件"),
-        );
-      setStatus(tr("Converting model…", "正在转换模型…"));
-      const { convertFBX } = await import("./fbx");
-      const bytes = await convertFBX(file, target);
-      if (target === "glb") readGLB(bytes);
-      downloadModel(bytes, file.name.replace(/\.[^.]+$/, "." + target));
-      setStatus(tr("Started", "已发起") + target.toUpperCase() + tr("download", "下载"));
-    } catch (error) {
-      setStatus(`${tr("FBX conversion failed", "FBX 转换失败")}: ${error}`);
-    } finally {
-      documentIO.current = false;
-      setProjectBusy(false);
-    }
-  }
-
-  const meshConversionInput = useRef<HTMLInputElement>(null);
-  const meshConversionTarget = useRef<"glb" | MeshFormat>("glb");
-
-  function startMeshConversion(target: "glb" | MeshFormat) {
-    meshConversionTarget.current = target;
-    const input = meshConversionInput.current;
-    if (input) {
-      input.accept = target === "glb" ? ".obj,.stl" : ".glb";
-      input.click();
-    }
-  }
-
-  async function convertMeshFile(file: File, target: "glb" | MeshFormat) {
-    if (documentIO.current) return;
-    documentIO.current = true;
-    setProjectBusy(true);
-    try {
-      if (file.size > 128 * 1024 * 1024) throw Error(tr("File exceeds 128 MiB", "文件超过 128 MiB"));
-      const source = file.name.toLowerCase().split(".").pop();
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      if (target === "glb" && (source === "obj" || source === "stl")) {
-        downloadModel(
-          source === "obj"
-            ? objToGLB(bytes, (path) => {
-                throw Error(tr("Missing", "缺少") + path + tr(". Select the OBJ resource folder.", "，请选择 OBJ 资源文件夹"));
-              })
-            : meshToGLB(bytes, source),
-          file.name.replace(/\.[^.]+$/, ".glb"),
-        );
-      } else if (source === "glb" && target !== "glb") {
-        downloadModel(
-          target === "obj"
-            ? zipSync(glbToOBJ(bytes), { level: 0 })
-            : glbToMesh(bytes, target),
-          file.name.replace(/\.[^.]+$/, target === "obj" ? "-obj.zip" : ".stl"),
-        );
-      } else throw Error(tr("Input file format does not match", "输入文件格式不匹配"));
-      setStatus(target === "obj" ? tr("OBJ archive download started", "已发起 OBJ 资源包下载") : tr("Model download started", "已发起模型下载"));
-    } catch (error) {
-      setStatus(`${tr("Conversion failed", "格式转换失败")}: ${error}`);
-    } finally {
-      documentIO.current = false;
-      setProjectBusy(false);
-    }
-  }
+  const modelImportDialog = useRef<HTMLDialogElement>(null);
+  const modelExportDialog = useRef<HTMLDialogElement>(null);
+  type ExportFormat = "glb" | "gltf" | "fbx" | MeshFormat;
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("glb");
+  const [exportSelected, setExportSelected] = useState(false);
 
   function downloadModel(bytes: Uint8Array, name: string) {
     const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)]));
@@ -1480,42 +1457,73 @@ function App() {
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
-  function downloadGLB(
+  async function downloadGLB(
     selectedOnly: boolean,
-    format: "glb" | MeshFormat = "glb",
+    format: ExportFormat = "glb",
   ) {
     if (history.isPreviewing || documentIO.current) {
       setStatus(tr("Finish the current operation before exporting", "请先结束当前操作再导出"));
       return;
     }
+    const snapshot = history.scene;
+    const snapshotAssets = { ...assets.current };
+    const selection = selectedOnly ? [...selections] : undefined;
+    documentIO.current = true;
+    setProjectBusy(true);
     try {
+      const archive = format === "obj" || format === "gltf";
+      const extension = archive ? ".zip" : "." + format;
+      const filename = (selectedOnly ? "selection" : "scene") +
+        (archive ? "-" + format + extension : extension);
+      const mime = format === "glb" ? "model/gltf-binary" : archive
+        ? "application/zip" : format === "fbx" ? "application/octet-stream" : "model/stl";
+      const picker = (window as SaveWindow).showSaveFilePicker;
+      let handle;
+      try {
+        handle = await picker?.call(window, {
+          suggestedName: filename,
+          types: [{ description: format.toUpperCase(), accept: { [mime]: [extension] } }],
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (!(error instanceof DOMException && ["SecurityError", "NotAllowedError"].includes(error.name)))
+          throw error;
+      }
       const bytes = exportGLB(
-        history.scene,
+        snapshot,
         (path) => {
-          const data = assets.current[path];
+          const data = snapshotAssets[path];
           if (!data) throw Error(tr("Missing resource:", "缺少资源：") + path);
           return data;
         },
-        selectedOnly ? selections : undefined,
+        selection,
       );
-      downloadModel(
-        format === "glb"
-          ? bytes
-          : format === "obj"
-            ? zipSync(glbToOBJ(bytes), { level: 0 })
-            : glbToMesh(bytes, format),
-        (selectedOnly ? "selection" : "scene") +
-          (format === "obj" ? "-obj.zip" : "." + format),
-      );
-      setStatus(
-        format === "glb"
-          ? tr("GLB download started", "已发起 GLB 下载")
-          : format === "obj"
-            ? tr("OBJ archive download started", "已发起 OBJ 资源包下载")
-            : tr("STL download started (geometry only)", "已发起 STL 下载（仅几何）"),
-      );
+      let data = bytes;
+      if (format === "fbx") {
+        const { convertFBX } = await import("./fbx");
+        data = await convertFBX(new File([new Uint8Array(bytes)], "scene.glb"), "fbx");
+      } else if (format === "gltf") data = zipSync(splitGLB(bytes), { level: 0 });
+      else if (format === "obj") data = zipSync(glbToOBJ(bytes), { level: 0 });
+      else if (format === "stl") data = glbToMesh(bytes, format);
+      if (handle) {
+        const writer = await handle.createWritable();
+        try {
+          await writer.write(new Blob([new Uint8Array(data)], { type: mime }));
+          await writer.close();
+        } catch (error) {
+          await writer.abort().catch(() => {});
+          throw error;
+        }
+        setStatus(tr("Model exported", "模型已导出"));
+        return;
+      }
+      downloadModel(data, filename);
+      setStatus(tr("Model download started", "已发起模型下载"));
     } catch (e) {
-      setStatus(`${tr("GLB export failed", "GLB 导出失败")}: ${e}`);
+      setStatus(`${tr("Model export failed", "模型导出失败")}: ${e}`);
+    } finally {
+      documentIO.current = false;
+      setProjectBusy(false);
     }
   }
   async function exportProject(downloadOnly = false) {
@@ -1529,15 +1537,6 @@ function App() {
     setProjectBusy(true);
     try {
       const data = packProject({ scene: snapshot, assets: assets.current });
-      type SaveWindow = Window & {
-        showSaveFilePicker?: (options: unknown) => Promise<{
-          createWritable: () => Promise<{
-            write: (data: Blob) => Promise<void>;
-            close: () => Promise<void>;
-            abort: () => Promise<void>;
-          }>;
-        }>;
-      };
       const picker = downloadOnly
         ? undefined
         : (window as SaveWindow).showSaveFilePicker;
@@ -1644,6 +1643,10 @@ function App() {
         id: recoveryId.current,
         updated: Date.now(),
       });
+      await removeRecovery(value.id);
+      // Commit the recovered scene and banner removal together so its first
+      // frame uses the final viewport size.
+      setRecoveries((v) => v.filter((r) => r.id !== value.id));
       setMainPreview(false);
       setCameraNotice("");
       history.replace(value.scene);
@@ -1652,8 +1655,6 @@ function App() {
       select(null);
       pendingFocus.current = "*";
       refresh();
-      await removeRecovery(value.id);
-      setRecoveries((v) => v.filter((r) => r.id !== value.id));
       setStatus(tr("Recovered. Save the project to keep the changes.", "已恢复；请保存项目以完成落盘"));
     } catch (e) {
       setStatus(`${tr("Recovery failed", "恢复失败")}: ${e}`);
@@ -1757,7 +1758,7 @@ function App() {
           ),
         };
     }
-    changeCamera(
+    focusCamera(
       frameBounds(cameraLatest.current, selectedBounds, {
         width: r.width,
         height: r.height,
@@ -1768,9 +1769,33 @@ function App() {
     if (!node && (inspectorTab === "geometry" || inspectorTab === "material"))
       setInspectorTab("object");
   }, [node?.id, inspectorTab]);
+  function addShowcaseLights() {
+    const box = sceneBounds(history.scene, assetBounds, null);
+    const target = box
+      ? box.minimum.map((value, axis) => (value + box.maximum[axis]) / 2)
+      : [0, 0, 0];
+    const scale = box ? Math.max(.1, ...box.maximum.map((value, axis) =>
+      (value - box.minimum[axis]) / 16)) : 1;
+    edit((s) => {
+      s.schemaVersion = Math.max(7, s.schemaVersion) as Scene["schemaVersion"];
+      const lamps = [
+        {name: tr("Warm key", "暖色主光"), offset: [-3, 8, 5], size: 6, color: [1, .83, .65], power: 1350},
+        {name: tr("Cool fill", "冷色补光"), offset: [4, 6, -4], size: 5, color: [.72, .83, 1], power: 720},
+      ];
+      for (const {name, offset: [x,y,z], size, color, power} of lamps) {
+        const lamp = createLight(crypto.randomUUID(), "rectangle");
+        lamp.name = name;
+        lamp.transform.position = [target[0]+x*scale, target[1]+y*scale, target[2]+z*scale];
+        Object.assign(lamp.light!, {width:size*scale,height:size*scale,color,active:true,
+          intensity:power/(Math.PI*size*size)});
+        s.nodes.push(lamp);
+        aimObject(s, lamp.id, Math.atan2(x,z)*180/Math.PI, Math.atan2(y,Math.hypot(x,z))*180/Math.PI);
+      }
+    });
+  }
   function addSceneObject(
     kind: "camera" | "light",
-    lightType: "directional" | "point" | "spot" = "directional",
+    lightType: NonNullable<SceneNode["light"]>["type"] = "directional",
   ) {
     if (busy) return;
     const id = crypto.randomUUID(),
@@ -1781,7 +1806,7 @@ function App() {
     edit((s) => {
       s.schemaVersion = Math.max(
         s.schemaVersion,
-        kind === "light" ? 6 : 5,
+        kind === "light" ? 7 : 5,
       ) as Scene["schemaVersion"];
       s.nodes.push(n);
       if (kind === "light" || !s.nodes.some((x) => x.camera?.primary))
@@ -1792,6 +1817,7 @@ function App() {
     setSidebarTab("scene");
   }
   function toggleMainPreview() {
+    cameraFocus.current = null;
     if (mainPreview) {
       setMainPreview(false);
       return;
@@ -2059,102 +2085,48 @@ function App() {
                 shortcut: "⌘ / Ctrl S",
               },
               {
-                label: tr("Import glTF folder", "导入 glTF 资源文件夹"),
+                label: tr("Import…", "导入…"),
+                action: () => modelImportDialog.current?.showModal(),
+                disabled: busy,
+              },
+              {
+                label: tr("Export…", "导出…"),
                 action: () => {
-                  importGLTFFolder.current = true;
-                  packInput.current?.click();
+                  setExportSelected(selections.length > 0);
+                  modelExportDialog.current?.showModal();
                 },
                 disabled: busy,
               },
               {
-                label: tr("glTF → GLB (choose folder)", "glTF → GLB（选择模型文件夹）"),
-                action: () => {
-                  importGLTFFolder.current = false;
-                  packInput.current?.click();
-                },
+                label: tr("Examples", "示例"),
                 disabled: busy,
-              },
-              {
-                label: tr("GLB → glTF (download archive)", "GLB → glTF（下载资源包）"),
-                action: () => splitInput.current?.click(),
-                disabled: busy,
-              },
-              ...(["glb", "obj", "stl"] as const).map((target) => ({
-                label:
-                  target === "glb"
-                    ? tr("OBJ / STL → GLB (single file)", "OBJ / STL → GLB（单文件）")
-                    : target === "obj"
-                      ? tr("GLB → OBJ (with MTL and textures)", "GLB → OBJ（含 MTL 和贴图）")
-                      : tr("GLB → STL (geometry only)", "GLB → STL（仅几何）"),
-                action: () => startMeshConversion(target),
-                disabled: busy,
-              })),
-              ...(["obj", "stl"] as const).flatMap((format) =>
-                [true, false].map((selectedOnly) => ({
-                  label: `${tr("Export", "导出")} ${selectedOnly ? tr("selected objects", "选中对象") : tr("entire scene", "完整场景")} ${format.toUpperCase()}${format === "obj" ? tr(" (with resources)", "（含资源）") : tr(" (geometry only)", "（仅几何）")}`,
-                  action: () => downloadGLB(selectedOnly, format),
-                  disabled: busy || (selectedOnly && !selections.length),
-                })),
-              ),
-              {
-                label: tr("Export selected objects as GLB", "导出选中对象 GLB"),
-                action: () => downloadGLB(true),
-                disabled: busy || !selections.length,
-              },
-              {
-                label: tr("Export scene as GLB", "导出完整场景 GLB"),
-                action: () => downloadGLB(false),
-                disabled: busy,
-              },
-              ...[true, false].map((importIntoScene) => ({
-                label: importIntoScene
-                  ? tr("Import OBJ folder", "导入 OBJ 资源文件夹")
-                  : tr("OBJ folder → GLB", "OBJ 资源文件夹 → GLB"),
-                action: () => {
-                  objFolderImport.current = importIntoScene;
-                  objFolderInput.current?.click();
-                },
-                disabled: busy,
-              })),
-              {
-                label: "FBX → GLB",
-                action: () => startFBXConversion("glb"),
-                disabled: busy,
-              },
-              {
-                label: "GLB → FBX",
-                action: () => startFBXConversion("fbx"),
-                disabled: busy,
-              },
-              {
-                label: tr("Import GLB / OBJ / STL / STEP", "导入 GLB / OBJ / STL / STEP"),
-                action: () => modelInput.current?.click(),
-                disabled: busy,
-              },
-              {
-                label: tr("Sample project", "示例项目"),
-                action: () => void openExample(),
-                disabled: busy,
-              },
-              {
-                label: tr("Dimensions example", "尺寸示例"),
-                action: () => void openExample(true),
-                disabled: busy,
-              },
-              {
-                label: tr("Geometry example", "几何体示例"),
-                action: () => void openGeometryExample(),
-                disabled: busy,
-              },
-              {
-                label: tr("Model hierarchy example", "模型结构示例"),
-                action: () => void importModelExample(),
-                disabled: busy,
-              },
-              {
-                label: tr("Lights and cameras example", "灯光与相机示例"),
-                action: () => void openSceneObjectsExample(),
-                disabled: busy,
+                children: [
+                  {
+                    label: tr("Sample project", "示例项目"),
+                    action: () => void openExample(),
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Dimensions example", "尺寸示例"),
+                    action: () => void openExample(true),
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Geometry example", "几何体示例"),
+                    action: () => void openGeometryExample(),
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Model hierarchy example", "模型结构示例"),
+                    action: () => void importModelExample(),
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Lights and cameras example", "灯光与相机示例"),
+                    action: () => void openSceneObjectsExample(),
+                    disabled: busy,
+                  },
+                ],
               },
             ]}
           />
@@ -2213,19 +2185,35 @@ function App() {
                 disabled: busy,
               })),
               {
-                label: tr("Directional light", "方向光"),
-                action: () => addSceneObject("light"),
+                label: tr("Lights", "灯光"),
                 disabled: busy,
-              },
-              {
-                label: tr("Point light", "点光"),
-                action: () => addSceneObject("light", "point"),
-                disabled: busy,
-              },
-              {
-                label: tr("Spotlight", "聚光"),
-                action: () => addSceneObject("light", "spot"),
-                disabled: busy,
+                children: [
+                  {
+                    label: tr("Directional light", "方向光"),
+                    action: () => addSceneObject("light"),
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Point light", "点光"),
+                    action: () => addSceneObject("light", "point"),
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Spotlight", "聚光"),
+                    action: () => addSceneObject("light", "spot"),
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Showcase lighting", "展示灯光"),
+                    action: addShowcaseLights,
+                    disabled: busy,
+                  },
+                  {
+                    label: tr("Rectangle light", "矩形面光"),
+                    action: () => addSceneObject("light", "rectangle"),
+                    disabled: busy,
+                  },
+                ],
               },
               {
                 label: tr("Camera", "相机"),
@@ -2242,6 +2230,19 @@ function App() {
           <Menu
             label={tr("View", "视图")}
             items={[
+              {
+                label: tr("Render mode", "渲染模式"),
+                disabled: busy || history.isPreviewing,
+                children: ([
+                  ["raster", tr("Raster", "光栅")],
+                  ["hybrid", "Hybrid"],
+                  ["ray-tracing", tr("Ray tracing", "光追")],
+                ] as const).map(([mode, label]) => ({
+                  label,
+                  action: () => changeRenderMode(mode),
+                  disabled: mode === renderMode,
+                })),
+              },
               {
                 label:
                   transformSpace === "local" ? tr("Switch to world space", "切换世界坐标") : tr("Switch to local space", "切换局部坐标"),
@@ -2282,6 +2283,10 @@ function App() {
                 label: assetsOpen ? tr("Collapse library", "收起资源库") : tr("Expand library", "展开资源库"),
                 action: () => setAssetsOpen((v) => !v),
               },
+              { label: tr("Settings", "设置"), action: () => {
+                setSidebarTab("settings");
+                setMobileDrawer("scene");
+              } },
               { label: tr("Lighting settings", "光照设置"), action: openLightSettings },
               {
                 label: tr("Reset view", "恢复默认视角"),
@@ -2311,29 +2316,21 @@ function App() {
         </span>
       </header>
       {recoveries.length > 0 && !recoveryDismissed && (
-        <section className="recovery-banner" aria-label={tr("Recover unsaved project", "恢复未保存项目")}>
-          <div className="recovery-heading">
-            <strong>{tr("Recoverable projects", "可恢复项目")}</strong>
-            <button onClick={() => setRecoveryDismissed(true)}>{tr("Later", "稍后")}</button>
+        <section className="recovery-banner recovery-heading" aria-label={tr("Unsaved projects", "未保存的项目")}>
+          <strong role="status">
+            {tr(`${recoveries.length} recoverable ${recoveries.length === 1 ? "project" : "projects"}`, `有 ${recoveries.length} 条可恢复记录`)}
+          </strong>
+          <div className="recovery-notice-actions">
+            <button type="button" className="recovery-restore" onClick={() => {
+              setSidebarTab("project");
+              setMobileDrawer("scene");
+              setRecoveryDismissed(true);
+            }}>{tr("View", "查看")}</button>
+            <button type="button" className="recovery-later" onClick={() => setRecoveryDismissed(true)}>{tr("Later", "稍后")}</button>
           </div>
-          {recoveries.map((r) => (
-            <span key={r.id}>
-              {r.scene.name} · {new Date(r.updated).toLocaleString()}{" "}
-              <button onClick={() => void restoreRecovery(r)}>{tr("Recover", "恢复")}</button>
-              <button
-                onClick={() =>
-                  void removeRecovery(r.id)
-                    .then(() =>
-                      setRecoveries((v) => v.filter((x) => x.id !== r.id)),
-                    )
-                    .catch((e) => setStatus(String(e)))
-                }
-              >{tr("Discard copy", "丢弃此副本")}</button>
-            </span>
-          ))}
         </section>
       )}
-      <div className="workspace">
+      <div className="workspace" data-drawer={mobileDrawer ?? undefined}>
         <main
           className="viewport"
           inert={scenePlaying}
@@ -2543,6 +2540,11 @@ function App() {
               refresh();
             }}
           />
+          {sceneLoading && (
+            <div className="viewport-loading" role="status">
+              <span>{tr("Loading scene…", "正在加载场景…")}</span>
+            </div>
+          )}
           <div
             className="viewport-footer"
             title={tr("Left: select · Middle: pan · Right: orbit · Wheel: zoom", "左键选择 · 中键平移 · 右键环绕 · 滚轮缩放")}
@@ -2550,7 +2552,7 @@ function App() {
             <span>
               {!scene.nodes.length && !projectBusy
                 ? tr("Empty scene", "空场景")
-                : busy
+                : sceneLoading
                   ? tr("Loading…", "正在加载…")
                   : scene.nodes.length && preview.match(/^\d+ /)
                     ? preview.replace(/(model instances|个模型实例)$/, tr("model instances", "个模型实例"))
@@ -2639,7 +2641,7 @@ function App() {
                 <p className="hint">{tr("Import a model or add an empty node.", "导入模型或创建空节点，开始组织场景。")}</p>
               )}
             </section>
-            <section className="inspector" aria-label={tr("Object properties", "对象属性")}>
+            <section id="object-properties" className="inspector" aria-label={tr("Object properties", "对象属性")}>
               <div className="panel-title">{tr("Properties", "属性")}</div>
               <div
                 className="inspector-tabs"
@@ -2805,7 +2807,7 @@ function App() {
                   )}
                   <fieldset
                     className="object-fields"
-                    disabled={busy || inheritedFlag(scene, node.id, "locked")}
+                    disabled={projectBusy || inheritedFlag(scene, node.id, "locked")}
                   >
                     <div className="object-identity" title={node.id}>
                       <Icon name={node.assetId ? "cube" : "circle"} />
@@ -2819,6 +2821,7 @@ function App() {
                                   directional: tr("Directional light", "方向光"),
                                   point: tr("Point light", "点光"),
                                   spot: tr("Spotlight", "聚光"),
+                                  rectangle: tr("Rectangle light", "矩形面光"),
                                 }[node.light.type]
                               : node.assetId
                                 ? tr("Model instance", "模型实例")
@@ -2840,7 +2843,7 @@ function App() {
                     {behaviorControls()}
                     {animationControls()}
                     {node.assetId && materialVariants.length > 0 && (
-                      <label>{tr("Material variants", "材质变体")}<select value={inspectedAsset?.materialVariant ?? -1} onChange={(e) => {
+                      <label>{tr("Material variants", "材质变体")}<select disabled={renderingBusy} value={inspectedAsset?.materialVariant ?? -1} onChange={(e) => {
                           const index = Number(e.currentTarget.value), assetId = node.assetId!;
                           edit((draft) => {
                             assertEditable(draft, [node.id]);
@@ -2901,8 +2904,8 @@ function App() {
                               >;
                               s.schemaVersion = Math.max(
                                 s.schemaVersion,
-                                n.light.type !== "directional" &&
-                                  n.light.shadows
+                                n.light.type === "rectangle" ||
+                                  (n.light.type !== "directional" && n.light.shadows)
                                   ? 7
                                   : 6,
                               ) as Scene["schemaVersion"];
@@ -3003,6 +3006,41 @@ function App() {
             hidden={sidebarTab !== "project"}
           >
             <h3>{tr("Project", "项目")}</h3>
+            <section className="project-recoveries" aria-labelledby="recovery-section-title">
+              <h4 id="recovery-section-title">{tr("Recovery copies", "恢复副本")} ({recoveries.length})</h4>
+              {recoveries.length > 0 ? (
+                <ul className="recovery-list">
+                  {recoveries.map((r) => (
+                    <li className="recovery-item" key={r.id}>
+                      <Icon name="folder" />
+                      <div className="recovery-project">
+                        <strong title={r.scene.name}>{r.scene.name}</strong>
+                        <time dateTime={new Date(r.updated).toISOString()}>
+                          {new Date(r.updated).toLocaleString(language === "zh" ? "zh-CN" : "en")}
+                        </time>
+                      </div>
+                      <button type="button" className="recovery-restore" disabled={projectBusy} onClick={() => void restoreRecovery(r)}>{tr("Recover", "恢复")}</button>
+                      <button
+                        type="button"
+                        className="recovery-discard"
+                        disabled={projectBusy}
+                        aria-label={tr("Discard copy", "丢弃此副本")}
+                        title={tr("Discard copy", "丢弃此副本")}
+                        onClick={() =>
+                          void removeRecovery(r.id)
+                            .then(() =>
+                              setRecoveries((v) => v.filter((x) => x.id !== r.id)),
+                            )
+                            .catch((e) => setStatus(String(e)))
+                        }
+                      ><Icon name="trash" /></button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="compact-status">{tr("No recovery copies", "没有恢复副本")}</p>
+              )}
+            </section>
             <strong className="project-title-text">{scene.name}</strong>
             <div className="project-summary">
               <span>{tr("Nodes", "节点")}</span>
@@ -3021,10 +3059,6 @@ function App() {
               {assetsOpen ? tr("Collapse library", "收起资源库") : tr("Expand library", "展开资源库")}
             </button>
             <button disabled={busy} onClick={() => modelInput.current?.click()}>{tr("Import model", "导入模型")}</button>
-            {recoveries.length > 0 && (
-              <button onClick={() => setRecoveryDismissed(false)}>{tr("Recovery copies (", "恢复副本（")}{recoveries.length}）
-              </button>
-            )}
             <p className="compact-status">{recoveryStatus}</p>
           </section>
           <section
@@ -3164,6 +3198,22 @@ function App() {
             )}
           </div>
         </section>
+        <nav className="mobile-drawers" aria-label={tr("Editor drawers", "编辑抽屉")} inert={scenePlaying}>
+          {([
+            ["scene", tr("Scene", "场景"), "sidebar-scene"],
+            ["properties", tr("Properties", "属性"), "object-properties"],
+            ["assets", tr("Assets", "资源"), "asset-drawer-content"],
+          ] as const).map(([id, label, controls]) => (
+            <button key={id} type="button" aria-controls={controls} aria-expanded={mobileDrawer === id}
+              onClick={() => {
+                setMobileDrawer(mobileDrawer === id ? null : id);
+                if (id === "assets") setAssetsOpen(true);
+                else setSidebarTab("scene");
+              }}>
+              {label}
+            </button>
+          ))}
+        </nav>
       </div>
 
       <footer>
@@ -3181,7 +3231,7 @@ function App() {
           element?.setAttribute("webkitdirectory", "");
         }}
         onChange={(event) => {
-          void convertModel(Array.from(event.currentTarget.files ?? []), true, importGLTFFolder.current);
+          void importGLTFFiles(Array.from(event.currentTarget.files ?? []));
           event.currentTarget.value = "";
         }}
       />
@@ -3193,48 +3243,57 @@ function App() {
           element?.setAttribute("webkitdirectory", "");
         }}
         onChange={(event) => {
-          void openOBJFolder(
-            Array.from(event.currentTarget.files ?? []),
-            objFolderImport.current,
-          );
+          void openOBJFolder(Array.from(event.currentTarget.files ?? []));
           event.currentTarget.value = "";
         }}
       />
-      <input
-        type="file"
-        hidden
-        ref={fbxInput}
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          if (file) void convertFBXFile(file, fbxTarget.current);
-          event.currentTarget.value = "";
-        }}
-      />
-      <input
-        type="file"
-        hidden
-        ref={meshConversionInput}
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          if (file) void convertMeshFile(file, meshConversionTarget.current);
-          event.currentTarget.value = "";
-        }}
-      />
-      <input
-        type="file"
-        accept=".glb,model/gltf-binary"
-        hidden
-        ref={splitInput}
-        onChange={(event) => {
-          void convertModel(Array.from(event.currentTarget.files ?? []), false);
-          event.currentTarget.value = "";
-        }}
-      />
+      <dialog ref={modelImportDialog} className="file-dialog" aria-label={tr("Import model", "导入模型")}>
+        <h2>{tr("Import model", "导入模型")}</h2>
+        <button type="button" onClick={() => {
+          modelImportDialog.current?.close();
+          modelInput.current?.click();
+        }}>{tr("Choose file…", "选择文件…")}</button>
+        <button type="button" onClick={() => {
+          modelImportDialog.current?.close();
+          packInput.current?.click();
+        }}>{tr("Choose glTF folder…", "选择 glTF 文件夹…")}</button>
+        <button type="button" onClick={() => {
+          modelImportDialog.current?.close();
+          objFolderInput.current?.click();
+        }}>{tr("Choose OBJ folder…", "选择 OBJ 文件夹…")}</button>
+        <form method="dialog"><button>{tr("Cancel", "取消")}</button></form>
+      </dialog>
+      <dialog ref={modelExportDialog} className="file-dialog" aria-label={tr("Export model", "导出模型")}>
+        <h2>{tr("Export model", "导出模型")}</h2>
+        <label>{tr("Scope", "范围")}
+          <select value={exportSelected ? "selection" : "scene"}
+            onChange={event => setExportSelected(event.target.value === "selection")}>
+            <option value="scene">{tr("Entire scene", "完整场景")}</option>
+            <option value="selection" disabled={!selections.length}>{tr("Selected objects", "选中对象")}</option>
+          </select>
+        </label>
+        <label>{tr("Format", "格式")}
+          <select value={exportFormat} onChange={event => setExportFormat(event.target.value as typeof exportFormat)}>
+            <option value="glb">GLB (.glb)</option>
+            <option value="gltf">glTF (.zip)</option>
+            <option value="fbx">FBX (.fbx)</option>
+            <option value="obj">OBJ (.zip)</option>
+            <option value="stl">STL (.stl)</option>
+          </select>
+        </label>
+        <form method="dialog">
+          <button>{tr("Cancel", "取消")}</button>
+          <button type="button" onClick={() => {
+            modelExportDialog.current?.close();
+            void downloadGLB(exportSelected, exportFormat);
+          }}>{tr("Export…", "导出…")}</button>
+        </form>
+      </dialog>
       <input
         hidden
         type="file"
         id="model-import"
-        accept=".glb,.gltf,.obj,.stl,.step,.stp"
+        accept=".glb,.gltf,.obj,.stl,.fbx,.step,.stp"
         ref={modelInput}
         onChange={(e) => {
           void importGLB(e.target.files?.[0]);

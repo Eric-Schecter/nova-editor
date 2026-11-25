@@ -10,6 +10,9 @@ import {
   applyMaterial,
   applyTexture,
   hasTexture,
+  materialTextureImage,
+  materialUsesExtension,
+  type GLB,
   textureSlots,
   imageType,
   colorHex,
@@ -17,6 +20,26 @@ import {
   type TextureSlot,
 } from "../../../packages/asset-system/index";
 import { linearColor } from "../../../packages/editor-core/src/lighting";
+function TextureThumbnail({ doc, slot, replacement }: {
+  doc: GLB;
+  slot: TextureSlot;
+  replacement?: Uint8Array | null;
+}) {
+  const [url, setURL] = useState("");
+  useEffect(() => {
+    const image = replacement === undefined ? materialTextureImage(doc, slot) :
+      replacement ? { bytes: replacement, mimeType: imageType(replacement) } : null;
+    if (!image || !["image/png", "image/jpeg", "image/webp"].includes(image.mimeType)) {
+      setURL("");
+      return;
+    }
+    const next = URL.createObjectURL(new Blob([new Uint8Array(image.bytes)], { type: image.mimeType }));
+    setURL(next);
+    return () => URL.revokeObjectURL(next);
+  }, [doc, slot, replacement]);
+  return url ? <img className="material-texture-thumbnail" alt={tr("Texture preview", "贴图预览")} src={url} /> : null;
+}
+
 function MaterialColor({
   label,
   value,
@@ -93,6 +116,20 @@ export function AssetProperties({
     [pending, setPending] = useState<
       Partial<Record<TextureSlot, { bytes: Uint8Array; name: string } | null>>
     >({});
+  const loadPreset = (preset: string) => {
+    const values: Record<string, { color: number[]; metallic: number; roughness: number }> = {
+      Clay: { color: [0.56, 0.24, 0.13], metallic: 0, roughness: 0.85 },
+      Plastic: { color: [0.06, 0.22, 0.64], metallic: 0, roughness: 0.33 },
+      Metal: { color: [0.65, 0.68, 0.72], metallic: 1, roughness: 0.25 },
+    };
+    if (!values[preset]) return;
+    setMaterial({
+      ...values[preset], name: preset, opacity: 1, alphaMode: "OPAQUE",
+      alphaCutoff: 0.5, doubleSided: false, emissive: [0, 0, 0],
+      normalScale: 1, occlusion: 1,
+    });
+    setPending(Object.fromEntries(textureSlots.filter((slot) => !("extension" in slot)).map(({ key }) => [key, null])));
+  };
   if (!parsed.doc) return <p className="hint">{parsed.error}</p>;
   const doc = parsed.doc;
   const updateMaterial = (
@@ -253,6 +290,14 @@ export function AssetProperties({
           material && (
             <>
               <h3>{tr("PBR material", "PBR 材质")}</h3>
+              <label className="field">{tr("Replace with preset", "替换为预设")}
+                <select value="" onChange={(e) => loadPreset(e.currentTarget.value)}>
+                  <option value="" disabled>{tr("Choose material", "选择材质")}</option>
+                  <option value="Clay">{tr("Matte clay", "哑光陶土")}</option>
+                  <option value="Plastic">{tr("Blue plastic", "蓝色塑料")}</option>
+                  <option value="Metal">{tr("Silver metal", "银色金属")}</option>
+                </select>
+              </label>
               <label className="field">{tr("Name", "名称")}<input
                   aria-label={tr("Material name", "材质名称")}
                   value={material.name}
@@ -305,36 +350,50 @@ export function AssetProperties({
               </label>
               {factor("normalScale", tr("Normal strength", "法线强度"), 4)}
               {factor("occlusion", tr("Occlusion strength", "遮蔽强度"))}
-              <h3>{tr("Texture", "贴图")}</h3>
-              {textureSlots.map((t) => {
-                const ready = Object.hasOwn(pending, t.key)
-                  ? !!pending[t.key]
-                  : hasTexture(doc, t.key);
-                return (
-                  <div className="texture-property" key={t.key}>
-                    <label>
-                      {t.label}
-                      <input
-                        type="file"
-                        aria-label={t.label}
-                        accept="image/png,image/jpeg"
-                        onChange={(e) => void file(t.key, e.currentTarget)}
-                      />
-                    </label>
-                    <div>
-                      <small>
-                        {pending[t.key]?.name ?? (ready ? tr("Embedded", "已内嵌") : tr("None", "无"))}
-                      </small>
+              <details className="material-texture-group" open>
+                <summary>{tr("Textures", "贴图")}</summary>
+                {textureSlots.filter((slot) => !("extension" in slot) || materialUsesExtension(doc, slot.extension)).map((slot) => {
+                  const replacement = pending[slot.key];
+                  const ready = replacement === undefined ? hasTexture(doc, slot.key) : !!replacement;
+                  const englishName = slot.key === "metallicRoughness" ? "Metallic / roughness" :
+                    slot.key.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^./, (c) => c.toUpperCase());
+                  const label = tr(englishName, slot.label);
+                  const status = replacement?.name ?? (replacement === null
+                    ? tr("Removal pending", "待移除")
+                    : ready ? tr("Embedded", "已内嵌") : tr("Empty", "空槽位"));
+                  return (
+                    <div className="texture-property" key={slot.key}>
+                      <div className="texture-slot-preview" aria-hidden="true">
+                        {ready && <TextureThumbnail doc={doc} slot={slot.key} replacement={replacement?.bytes} />}
+                      </div>
+                      <div className="texture-slot-info">
+                        <strong>{label}</strong>
+                        <small title={status}>{status}</small>
+                      </div>
+                      <label className="texture-slot-picker">
+                        {ready ? tr("Replace", "替换") : tr("Choose", "选择")}
+                        <input
+                          type="file"
+                          aria-label={label}
+                          accept="image/png,image/jpeg"
+                          onChange={(e) => void file(slot.key, e.currentTarget)}
+                        />
+                      </label>
                       <button
-                        disabled={!ready}
-                        onClick={() =>
-                          setPending((p) => ({ ...p, [t.key]: null }))
-                        }
-                      >{tr("Remove", "移除")}</button>
+                        type="button"
+                        disabled={!ready && replacement !== null}
+                        aria-label={replacement === null ? tr(`Restore ${englishName}`, `恢复${slot.label}`) : tr(`Remove ${englishName}`, `移除${slot.label}`)}
+                        onClick={() => setPending((previous) => {
+                          const next = { ...previous };
+                          if (next[slot.key] === null) delete next[slot.key];
+                          else next[slot.key] = null;
+                          return next;
+                        })}
+                      >{replacement === null ? tr("Undo", "撤销") : tr("Clear", "清除")}</button>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </details>
               <button
                 className="primary"
                 disabled={applying || disabled}

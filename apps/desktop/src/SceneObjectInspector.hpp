@@ -34,6 +34,8 @@ namespace editor
             bool camera = node.contains("camera");
             if (!camera)
             {
+                draft["width"] = draft.value("width", 1.);
+                draft["height"] = draft.value("height", 1.);
                 draft["range"]          = draft.value("range", 10.);
                 draft["innerConeAngle"] = draft.value("innerConeAngle", .35);
                 draft["outerConeAngle"] = draft.value("outerConeAngle", .6);
@@ -71,14 +73,20 @@ namespace editor
             }
             else
             {
-                int         type = draft["type"] == "point" ? 1 : draft["type"] == "spot" ? 2 : 0;
-                const char* types[]{"Directional", "Point", "Spot"};
-                if (ImGui::Combo(editor::language::text("Light type", "灯光类型"), &type, types, 3))
+                int         type = draft["type"] == "point" ? 1 : draft["type"] == "spot" ? 2 : draft["type"] == "rectangle" ? 3 : 0;
+                const char* types[]{"Directional", "Point", "Spot", "Rectangle"};
+                if (ImGui::Combo(editor::language::text("Light type", "灯光类型"), &type, types, 4))
                 {
-                    draft["type"] = type == 1 ? "point" : type == 2 ? "spot" : "directional";
+                    draft["type"] = type == 1 ? "point" : type == 2 ? "spot" : type == 3 ? "rectangle" : "directional";
                 }
                 if (type)
                     number("Range (0 = unlimited)", "range");
+                if (type == 3)
+                {
+                    number("Emitter width", "width");
+                    number("Emitter height", "height");
+                    ImGui::InputFloat("Local roll (degrees)", &angles[2], 1, 10, "%.3f");
+                }
                 if (type == 2)
                     for (const char* field : {"innerConeAngle", "outerConeAngle"})
                     {
@@ -103,7 +111,8 @@ namespace editor
                 bool shadows = draft["shadows"];
                 if (ImGui::Checkbox("Node shadows", &shadows))
                     draft["shadows"] = shadows;
-                number("Shadow softness", "softness");
+                if (type != 3)
+                    number("Shadow softness", "softness");
                 ImGui::TextWrapped(
                   "Per-light shadows for all types. Point/spot softness uses a world-space source disk. Static opaque "
                   "scenes only.");

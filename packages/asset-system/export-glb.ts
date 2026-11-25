@@ -206,7 +206,7 @@ export function exportGLB(
               },
         );
       }
-      if (n.light) {
+      if (n.light && n.light.type !== "rectangle") {
         const l = n.light;
         used.add("KHR_lights_punctual");
         j.extensions ??= {};

@@ -1,0 +1,46 @@
+cmake_minimum_required(VERSION 3.24)
+project(NovaEditorMobile VERSION 0.1.0 LANGUAGES CXX)
+
+if(ANDROID)
+  set(target android-arm64)
+  if(NOT ANDROID_ABI STREQUAL "arm64-v8a")
+    message(FATAL_ERROR "Nova Android requires arm64-v8a")
+  endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  enable_language(OBJCXX)
+  set(target ios-arm64)
+  set(NOVA_IOS_BUNDLE_PLATFORM iPhoneOS)
+  if(CMAKE_OSX_SYSROOT MATCHES "[Ii][Pp]hone[Ss]imulator")
+    set(target ios-simulator-arm64)
+    set(NOVA_IOS_BUNDLE_PLATFORM iPhoneSimulator)
+  endif()
+else()
+  message(FATAL_ERROR "Configure with the Android NDK or an iOS toolchain")
+endif()
+
+get_filename_component(root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+file(READ "${root}/nova-sdk.lock.json" lock)
+string(JSON sdk_version GET "${lock}" version)
+string(JSON sdk_file GET "${lock}" package nativeTargets "${target}" file)
+string(REGEX REPLACE "\\.zip$" "" sdk_folder "${sdk_file}")
+list(PREPEND CMAKE_PREFIX_PATH "${root}/deps/nova/mobile/${sdk_folder}")
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+find_package(Nova "${sdk_version}" EXACT CONFIG REQUIRED
+  PATHS "${root}/deps/nova/mobile/${sdk_folder}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+
+if(ANDROID)
+  add_library(nova_mobile SHARED main.cpp android/Controls.cpp)
+  set_target_properties(nova_mobile PROPERTIES OUTPUT_NAME main)
+else()
+  add_executable(nova_mobile MACOSX_BUNDLE main.cpp ios/Controls.mm)
+  set_property(SOURCE ios/Controls.mm APPEND PROPERTY COMPILE_OPTIONS -fobjc-arc)
+  set_target_properties(nova_mobile PROPERTIES OUTPUT_NAME "NovaEditor"
+    MACOSX_BUNDLE_GUI_IDENTIFIER org.nova.editor.mobile
+    MACOSX_BUNDLE_BUNDLE_NAME "Nova Editor"
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist.in")
+  target_link_libraries(nova_mobile PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers")
+endif()
+
+target_compile_features(nova_mobile PRIVATE cxx_std_17)
+target_include_directories(nova_mobile PRIVATE ../desktop/src ../../third_party/nlohmann-json/include)
+target_link_libraries(nova_mobile PRIVATE Nova::Render SDL3::SDL3)
